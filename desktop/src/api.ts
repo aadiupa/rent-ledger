@@ -142,6 +142,25 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+  updateTransaction: (
+    id: number,
+    data: {
+      date?: string;
+      property_id?: number | null;
+      tenant_id?: number | null;
+      category?: string;
+      amount?: number;
+      description?: string;
+      vendor?: string | null;
+      expense_type?: 'capex' | 'opex' | null;
+      payment_method?: string | null;
+      reference?: string | null;
+    }
+  ) =>
+    request<{ success: boolean; transaction: Transaction }>(`/transactions/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
   deleteTransaction: (id: number) =>
     request<{ success: boolean; count: number }>(`/transactions/${id}`, {
       method: 'DELETE',

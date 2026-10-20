@@ -7,27 +7,36 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Trash2,
+  Edit2,
   AlertTriangle,
   X,
 } from 'lucide-react';
-import { Transaction } from '../types';
+import { Transaction, Property, Tenant } from '../types';
 import { formatINR, formatDate } from '../utils/format';
 import { api } from '../api';
+import { EditTransactionModal } from '../components/EditTransactionModal';
 
 interface TransactionsViewProps {
   transactions: Transaction[];
   onOpenRecordModal: () => void;
   onRefresh?: () => Promise<void> | void;
+  properties?: Property[];
+  tenants?: Tenant[];
 }
 
 export const TransactionsView: React.FC<TransactionsViewProps> = ({
   transactions,
   onOpenRecordModal,
   onRefresh,
+  properties = [],
+  tenants = [],
 }) => {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+
+  // Edit state
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
   // Multi-select & Delete states
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -335,7 +344,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                 <th className="py-3 px-4">Entity / Tenant</th>
                 <th className="py-3 px-4">Method & Ref</th>
                 <th className="py-3 px-4 text-right">Amount</th>
-                <th className="py-3 px-3 w-14 text-center">Action</th>
+                <th className="py-3 px-3 w-20 text-center">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -386,8 +395,17 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                         {tx.tenant_name || <span className="text-gray-400">—</span>}
                       </td>
 
-                      <td className="py-3.5 px-4 whitespace-nowrap text-gray-500">
-                        <div>{tx.payment_method || 'Direct'}</div>
+                      <td
+                        className="py-3.5 px-4 whitespace-nowrap text-gray-700 cursor-pointer group"
+                        onClick={() => setEditingTransaction(tx)}
+                        title="Click to edit payment method or transaction details"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-medium group-hover:text-blue-600 group-hover:underline">
+                            {tx.payment_method || 'Direct'}
+                          </span>
+                          <Edit2 className="w-2.5 h-2.5 text-gray-400 opacity-0 group-hover:opacity-100 transition" />
+                        </div>
                         {tx.reference && (
                           <div className="text-[10px] text-gray-400 font-mono">{tx.reference}</div>
                         )}
@@ -404,14 +422,23 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                         </span>
                       </td>
 
-                      <td className="py-3.5 px-3 w-14 text-center">
-                        <button
-                          onClick={() => setItemToDelete(tx)}
-                          title="Remove from ledger"
-                          className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                      <td className="py-3.5 px-3 w-20 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => setEditingTransaction(tx)}
+                            title="Edit transaction details"
+                            className="p-1.5 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setItemToDelete(tx)}
+                            title="Remove from ledger"
+                            className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -567,6 +594,18 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           </div>
         </div>
       )}
+      {/* Edit Transaction Modal */}
+      <EditTransactionModal
+        transaction={editingTransaction}
+        isOpen={Boolean(editingTransaction)}
+        onClose={() => setEditingTransaction(null)}
+        onSuccess={async () => {
+          setEditingTransaction(null);
+          if (onRefresh) await onRefresh();
+        }}
+        properties={properties}
+        tenants={tenants}
+      />
     </div>
   );
 };

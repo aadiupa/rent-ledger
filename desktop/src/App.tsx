@@ -142,6 +142,8 @@ export const App: React.FC = () => {
         {currentView === 'transactions' && (
           <TransactionsView
             transactions={transactions}
+            properties={properties}
+            tenants={tenants}
             onOpenRecordModal={() => handleOpenRecordModal()}
             onRefresh={refreshData}
           />

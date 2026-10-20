@@ -813,6 +813,124 @@ app.post('/api/transactions', (req, res) => {
   res.json({ id: txId });
 });
 
+// Update Transaction (modify payment method, mode, reference, category, amount, property, date, description)
+app.patch('/api/transactions/:id', (req, res) => {
+  const txId = Number(req.params.id);
+  const existingTx = db.prepare("SELECT * FROM transactions WHERE id = ?").get(txId);
+  if (!existingTx) {
+    return res.status(404).json({ error: "Transaction not found" });
+  }
+
+  const {
+    date,
+    property_id,
+    tenant_id,
+    category,
+    amount,
+    description,
+    vendor,
+    expense_type,
+    payment_method,
+    reference
+  } = req.body;
+
+  const updates = [];
+  const params = [];
+
+  if (date !== undefined) { updates.push("date = ?"); params.push(date); }
+  if (property_id !== undefined) { updates.push("property_id = ?"); params.push(property_id ? Number(property_id) : null); }
+  if (tenant_id !== undefined) { updates.push("tenant_id = ?"); params.push(tenant_id ? Number(tenant_id) : null); }
+  if (category !== undefined) { updates.push("category = ?"); params.push(category); }
+  if (amount !== undefined) { updates.push("amount = ?"); params.push(Number(amount)); }
+  if (description !== undefined) { updates.push("description = ?"); params.push(description); }
+  if (vendor !== undefined) { updates.push("vendor = ?"); params.push(vendor || null); }
+  if (expense_type !== undefined) { updates.push("expense_type = ?"); params.push(expense_type || null); }
+  if (payment_method !== undefined) { updates.push("payment_method = ?"); params.push(payment_method || null); }
+  if (reference !== undefined) { updates.push("reference = ?"); params.push(reference || null); }
+
+  if (updates.length > 0) {
+    updates.push("updated_at = datetime('now')");
+    params.push(txId);
+    db.prepare(`UPDATE transactions SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+  }
+
+  const updatedTx = db.prepare(`
+    SELECT t.*, ten.name as tenant_name, p.name as property_name
+    FROM transactions t
+    LEFT JOIN tenants ten ON t.tenant_id = ten.id
+    LEFT JOIN properties p ON t.property_id = p.id
+    WHERE t.id = ?
+  `).get(txId);
+
+  // If amount, tenant_id, or category changed on an income payment, reconcile rent allocations
+  const rentCatChanged = (category !== undefined && category !== existingTx.category);
+  const amountChanged = (amount !== undefined && Number(amount) !== existingTx.amount);
+  const tenantChanged = (tenant_id !== undefined && (tenant_id ? Number(tenant_id) : null) !== existingTx.tenant_id);
+
+  if (existingTx.transaction_type === 'income' && (rentCatChanged || amountChanged || tenantChanged)) {
+    // 1. Identify previous allocations and revert them
+    const affectedCharges = db.prepare(`
+      SELECT DISTINCT rent_charge_id 
+      FROM rent_payment_allocations 
+      WHERE transaction_id = ?
+    `).all(txId).map(r => r.rent_charge_id);
+
+    db.prepare("DELETE FROM rent_payment_allocations WHERE transaction_id = ?").run(txId);
+
+    for (const chgId of affectedCharges) {
+      db.prepare(`
+        UPDATE rent_charges
+        SET amount_paid = (SELECT COALESCE(SUM(amount_allocated), 0) FROM rent_payment_allocations WHERE rent_charge_id = ?),
+            updated_at = datetime('now')
+        WHERE id = ?
+      `).run(chgId, chgId);
+    }
+
+    // 2. Re-allocate if new category is rent or arrears recovery
+    if (updatedTx.tenant_id && (updatedTx.category === 'Monthly Rent' || updatedTx.category === 'Arrears Recovery')) {
+      const unpaid = db.prepare("SELECT * FROM rent_charges WHERE tenant_id = ? AND status NOT IN ('paid', 'waived') ORDER BY due_date ASC").all(updatedTx.tenant_id);
+      let remaining = updatedTx.amount;
+
+      for (const chg of unpaid) {
+        if (remaining <= 0) break;
+        const needed = Math.max(0, chg.amount_due - chg.amount_paid - chg.waived_amount);
+        if (needed <= 0) continue;
+
+        const toAlloc = Math.min(remaining, needed);
+        db.prepare(`
+          INSERT INTO rent_payment_allocations (transaction_id, rent_charge_id, amount_allocated)
+          VALUES (?, ?, ?)
+          ON CONFLICT(transaction_id, rent_charge_id) DO UPDATE SET amount_allocated = amount_allocated + excluded.amount_allocated
+        `).run(txId, chg.id, toAlloc);
+
+        db.prepare(`
+          UPDATE rent_charges
+          SET amount_paid = (SELECT COALESCE(SUM(amount_allocated), 0) FROM rent_payment_allocations WHERE rent_charge_id = ?),
+              updated_at = datetime('now')
+          WHERE id = ?
+        `).run(chg.id, chg.id);
+
+        remaining -= toAlloc;
+      }
+    }
+
+    updateChargeStatuses();
+  }
+
+  // If this was a security deposit and amount/property changed, keep security_deposits in sync
+  if (updatedTx.transaction_type === 'income' && updatedTx.category === 'Security Deposit' && updatedTx.tenant_id) {
+    if (amountChanged || property_id !== undefined) {
+      db.prepare(`
+        UPDATE security_deposits 
+        SET amount_received = ?, property_id = ?, updated_at = datetime('now')
+        WHERE tenant_id = ?
+      `).run(updatedTx.amount, updatedTx.property_id, updatedTx.tenant_id);
+    }
+  }
+
+  res.json({ success: true, transaction: updatedTx });
+});
+
 // Delete helper for single or bulk deletion with complete ledger & charge reconciliation
 function deleteTransactionsInternal(rawIds) {
   const ids = (Array.isArray(rawIds) ? rawIds : [rawIds])
