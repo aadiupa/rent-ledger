@@ -375,7 +375,7 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     expect(waiverTx.amount).toBe(waiverAmount);
     expect(waiverTx.payment_method).toBe('Waived');
 
-    // 4. Option to remove the waiver from financial ledger only
+    // 4. When a waiver is deleted from Financial ledger, it should be gone from Rent Charges & Dues as well
     const delWaiverRes = await request(`/transactions/${waiveRes.transaction_id}`, {
       method: 'DELETE',
     });
@@ -385,11 +385,13 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     const txsAfterDel = await request('/transactions');
     expect(txsAfterDel.find((t: any) => t.id === waiveRes.transaction_id)).toBeUndefined();
 
-    // Verify tenant charge waiver and remaining dues are preserved intact
+    // Verify it is gone from Rent Charges & Dues as well (waived_amount reset to 0, reason cleared, dues restored)
     const chargesAfterDel = await request('/charges');
     const chargeAfterDel = chargesAfterDel.find((c: any) => c.id === unpaidCharge.id);
-    expect(chargeAfterDel.waived_amount).toBe(waiverAmount);
-    expect(chargeAfterDel.waived_reason).toBe('Diwali landlord festive waiver');
+    expect(chargeAfterDel.waived_amount).toBe(0);
+    expect(chargeAfterDel.waived_reason).toBeNull();
+    const remainingPaise = chargeAfterDel.amount_due - chargeAfterDel.amount_paid - chargeAfterDel.waived_amount;
+    expect(remainingPaise).toBe(2800000);
   });
 
   test('E2E Scenario 8: Security Deposit Modification & Inter-Property Tenant Relocation', async () => {

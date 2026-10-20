@@ -93,6 +93,9 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   const selectedOutflow = selectedTxs
     .filter((t) => t.transaction_type === 'expense')
     .reduce((sum, t) => sum + t.amount, 0);
+  const selectedWaivers = selectedTxs
+    .filter((t) => t.transaction_type === 'waiver')
+    .reduce((sum, t) => sum + t.amount, 0);
 
   // Single delete execution
   const handleConfirmSingleDelete = async () => {
@@ -476,7 +479,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                           </button>
                           <button
                             onClick={() => setItemToDelete(tx)}
-                            title={isWaiver ? 'Remove waiver from financial ledger only' : 'Remove from ledger'}
+                            title={isWaiver ? 'Remove waiver and restore dues in Rent Charges & Dues' : 'Remove from ledger'}
                             className={`p-1.5 rounded-lg transition ${
                               isWaiver
                                 ? 'text-purple-400 hover:text-purple-700 hover:bg-purple-50'
@@ -514,12 +517,12 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                 <div className="space-y-1">
                   <h3 className="text-base font-bold text-gray-900 tracking-tight">
                     {itemToDelete.transaction_type === 'waiver'
-                      ? 'Remove Waiver from Financial Ledger?'
+                      ? 'Remove Waiver & Restore Dues?'
                       : 'Remove from Ledger?'}
                   </h3>
                   <p className="text-xs text-gray-500 leading-relaxed">
                     {itemToDelete.transaction_type === 'waiver'
-                      ? 'This will remove the waiver entry from the financial ledger only. The tenant’s rent charge waiver and arrears status will remain intact.'
+                      ? 'Deleting this waiver will remove it from the financial ledger and restore the outstanding dues in Rent Charges & Dues.'
                       : 'Deleting this transaction will recompute available ledger cash and reverse any associated rent payment allocations.'}
                   </p>
                 </div>
@@ -585,7 +588,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                   {isDeleting
                     ? 'Removing...'
                     : itemToDelete.transaction_type === 'waiver'
-                    ? 'Yes, Remove from Ledger Only'
+                    ? 'Yes, Remove Waiver & Restore Dues'
                     : 'Yes, Remove Record'}
                 </button>
               </div>
@@ -608,7 +611,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                     Delete {selectedIds.length} Selected Transactions?
                   </h3>
                   <p className="text-xs text-gray-500 leading-relaxed">
-                    This will permanently delete {selectedIds.length} transactions from the ledger. Dependent rent arrears and ledger cash balances will be automatically recalculated.
+                    This will permanently delete {selectedIds.length} transactions from the ledger. Dependent rent arrears, waivers, and ledger cash balances will be automatically recalculated.
                   </p>
                 </div>
               </div>
@@ -634,6 +637,12 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                   <div className="flex justify-between">
                     <span>Expense Reversals:</span>
                     <span className="font-mono font-bold text-rose-600">-{formatINR(selectedOutflow)}</span>
+                  </div>
+                )}
+                {selectedWaivers > 0 && (
+                  <div className="flex justify-between">
+                    <span>Waiver Reversals:</span>
+                    <span className="font-mono font-bold text-purple-600">~{formatINR(selectedWaivers)}</span>
                   </div>
                 )}
                 <div className="text-[11px] text-gray-500 pt-1 border-t border-gray-200/60">

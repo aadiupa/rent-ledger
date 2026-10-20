@@ -322,22 +322,22 @@ function generateMonthlyCharges(upToDate = new Date().toISOString().split('T')[0
 function updateChargeStatuses(today = new Date().toISOString().split('T')[0]) {
   db.prepare(`
     UPDATE rent_charges SET status = 'paid', updated_at = datetime('now')
-    WHERE (amount_paid + waived_amount) >= amount_due AND status != 'waived'
+    WHERE (amount_paid + waived_amount) >= amount_due
   `).run();
 
   db.prepare(`
     UPDATE rent_charges SET status = 'partially_paid', updated_at = datetime('now')
-    WHERE amount_paid > 0 AND (amount_paid + waived_amount) < amount_due AND status != 'waived'
+    WHERE amount_paid > 0 AND (amount_paid + waived_amount) < amount_due
   `).run();
 
   db.prepare(`
     UPDATE rent_charges SET status = 'overdue', updated_at = datetime('now')
-    WHERE due_date < ? AND (amount_paid + waived_amount) < amount_due AND status NOT IN ('paid', 'waived')
+    WHERE due_date < ? AND amount_paid = 0 AND (amount_paid + waived_amount) < amount_due
   `).run(today);
 
   db.prepare(`
     UPDATE rent_charges SET status = 'due', updated_at = datetime('now')
-    WHERE due_date = ? AND amount_paid = 0 AND status NOT IN ('paid', 'waived')
+    WHERE due_date >= ? AND amount_paid = 0 AND (amount_paid + waived_amount) < amount_due
   `).run(today);
 }
 
@@ -848,6 +848,14 @@ function deleteChargesInternal(rawIds) {
       WHERE rent_charge_id IN (${placeholders})
     `).run(...ids);
 
+    // 1b. Delete any corresponding waiver transactions in the financial ledger
+    for (const chargeId of ids) {
+      db.prepare(`
+        DELETE FROM transactions 
+        WHERE transaction_type = 'waiver' AND reference = ?
+      `).run(`Charge #${chargeId}`);
+    }
+
     // 2. Delete the rent charges
     const result = db.prepare(`
       DELETE FROM rent_charges 
@@ -1093,6 +1101,25 @@ app.patch('/api/transactions/:id', (req, res) => {
     }
   }
 
+  // If this was a waiver and amount changed, keep rent_charges in sync
+  if (existingTx.transaction_type === 'waiver' && amountChanged && existingTx.reference) {
+    const match = existingTx.reference.match(/Charge #(\d+)/);
+    if (match) {
+      const chargeId = parseInt(match[1], 10);
+      if (!isNaN(chargeId)) {
+        const diff = Number(amount) - existingTx.amount;
+        db.prepare(`
+          UPDATE rent_charges 
+          SET waived_amount = MAX(0, waived_amount + ?),
+              waived_reason = CASE WHEN (waived_amount + ?) <= 0 THEN NULL ELSE waived_reason END,
+              updated_at = datetime('now')
+          WHERE id = ?
+        `).run(diff, diff, chargeId);
+        updateChargeStatuses();
+      }
+    }
+  }
+
   res.json({ success: true, transaction: updatedTx });
 });
 
@@ -1106,6 +1133,31 @@ function deleteTransactionsInternal(rawIds) {
 
   const deleteTx = db.transaction(() => {
     const placeholders = ids.map(() => '?').join(',');
+
+    // 0. Identify waiver transactions being deleted and revert their waived_amount on rent_charges
+    const waiverTxs = db.prepare(`
+      SELECT id, reference, amount 
+      FROM transactions 
+      WHERE id IN (${placeholders}) AND transaction_type = 'waiver'
+    `).all(...ids);
+
+    for (const w of waiverTxs) {
+      if (w.reference) {
+        const match = w.reference.match(/Charge #(\d+)/);
+        if (match) {
+          const chargeId = parseInt(match[1], 10);
+          if (!isNaN(chargeId)) {
+            db.prepare(`
+              UPDATE rent_charges 
+              SET waived_amount = MAX(0, waived_amount - ?),
+                  waived_reason = CASE WHEN (waived_amount - ?) <= 0 THEN NULL ELSE waived_reason END,
+                  updated_at = datetime('now')
+              WHERE id = ?
+            `).run(w.amount, w.amount, chargeId);
+          }
+        }
+      }
+    }
 
     // 1. Identify which rent charges are affected by allocations from these transactions
     const affectedCharges = db.prepare(`
