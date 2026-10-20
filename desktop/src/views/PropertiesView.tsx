@@ -1,20 +1,26 @@
 import React, { useState } from 'react';
-import { Building2, Plus, MapPin, Users, Home, Search } from 'lucide-react';
+import { Building2, Plus, MapPin, Users, Home, Search, Trash2, AlertTriangle, X } from 'lucide-react';
 import { Property } from '../types';
 import { formatINR } from '../utils/format';
+import { api } from '../api';
 
 interface PropertiesViewProps {
   properties: Property[];
   onOpenAddProperty: () => void;
   onNavigateToTenants: () => void;
+  onRefresh: () => void;
 }
 
 export const PropertiesView: React.FC<PropertiesViewProps> = ({
   properties,
   onOpenAddProperty,
   onNavigateToTenants,
+  onRefresh,
 }) => {
   const [search, setSearch] = useState('');
+  const [propertyToDelete, setPropertyToDelete] = useState<Property | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const filtered = properties.filter(
     (p) =>
@@ -25,6 +31,21 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
   const totalRentRoll = properties.reduce((sum, p) => sum + (p.total_monthly_rent || 0), 0);
   const totalTenants = properties.reduce((sum, p) => sum + (p.tenant_count || 0), 0);
   const totalUnits = properties.reduce((sum, p) => sum + (p.unit_count || 0), 0);
+
+  const handleDeleteConfirm = async () => {
+    if (!propertyToDelete) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.deleteProperty(propertyToDelete.id);
+      setPropertyToDelete(null);
+      onRefresh();
+    } catch (err: any) {
+      setDeleteError(err.message || 'Failed to remove property');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
@@ -133,16 +154,85 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
 
             <div className="p-3 bg-gray-50/70 border-t border-gray-100 flex items-center justify-between text-xs">
               <span className="text-gray-400 text-[11px]">ID #{prop.id}</span>
-              <button
-                onClick={onNavigateToTenants}
-                className="text-[11px] font-semibold text-gray-700 hover:text-gray-900 transition"
-              >
-                View Tenants →
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPropertyToDelete(prop)}
+                  className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                  title={`Remove ${prop.name}`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={onNavigateToTenants}
+                  className="text-[11px] font-semibold text-gray-700 hover:text-gray-900 transition"
+                >
+                  View Tenants →
+                </button>
+              </div>
             </div>
           </div>
         ))}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {propertyToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-200/80 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Remove Property?</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Are you sure you want to remove <strong className="text-gray-900">{propertyToDelete.name}</strong>?
+                  </p>
+                </div>
+              </div>
+
+              {deleteError && (
+                <div className="p-3 text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-lg">
+                  {deleteError}
+                </div>
+              )}
+
+              <div className="p-3 bg-gray-50 rounded-xl border border-gray-200/60 text-xs space-y-1.5 text-gray-600">
+                <div className="flex justify-between">
+                  <span>Units Configured:</span>
+                  <span className="font-semibold text-gray-900">{propertyToDelete.unit_count || 0}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Active Leases:</span>
+                  <span className="font-semibold text-gray-900">{propertyToDelete.tenant_count || 0}</span>
+                </div>
+                <div className="text-[11px] text-gray-500 pt-1 border-t border-gray-200/60">
+                  ⚠️ Deleting this property will remove its configured units and lease profiles. Any historical financial ledger transactions will be safely preserved as general overhead.
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setPropertyToDelete(null)}
+                  className="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={handleDeleteConfirm}
+                  className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs transition disabled:opacity-50"
+                >
+                  {isDeleting ? 'Removing...' : 'Yes, Remove Property'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

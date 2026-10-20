@@ -393,6 +393,19 @@ app.post('/api/properties', (req, res) => {
   res.json({ id: result.lastInsertRowid });
 });
 
+app.delete('/api/properties/:id', (req, res) => {
+  const propId = req.params.id;
+  const prop = db.prepare("SELECT * FROM properties WHERE id = ?").get(propId);
+  if (!prop) {
+    return res.status(404).json({ error: "Property not found" });
+  }
+
+  // Deleting property cascades units and tenants
+  // Transactions referencing property_id have ON DELETE SET NULL, preserving financial records
+  db.prepare("DELETE FROM properties WHERE id = ?").run(propId);
+  res.json({ success: true });
+});
+
 // 3. Tenants
 app.get('/api/tenants', (req, res) => {
   const tenants = db.prepare(`

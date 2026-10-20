@@ -113,6 +113,7 @@ export const App: React.FC = () => {
             properties={properties}
             onOpenAddProperty={() => setIsAddPropertyOpen(true)}
             onNavigateToTenants={() => setCurrentView('tenants')}
+            onRefresh={refreshData}
           />
         )}
 

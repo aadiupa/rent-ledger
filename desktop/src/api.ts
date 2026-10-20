@@ -42,6 +42,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+  deleteProperty: (id: number) =>
+    request<{ success: boolean }>(`/properties/${id}`, {
+      method: 'DELETE',
+    }),
 
   // Tenants
   getTenants: () => request<Tenant[]>('/tenants'),
