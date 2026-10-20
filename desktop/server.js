@@ -622,6 +622,128 @@ app.post('/api/transactions', (req, res) => {
   res.json({ id: txId });
 });
 
+// Delete helper for single or bulk deletion with complete ledger & charge reconciliation
+function deleteTransactionsInternal(rawIds) {
+  const ids = (Array.isArray(rawIds) ? rawIds : [rawIds])
+    .map(Number)
+    .filter(n => Number.isInteger(n) && n > 0);
+
+  if (ids.length === 0) return { deletedCount: 0 };
+
+  const deleteTx = db.transaction(() => {
+    const placeholders = ids.map(() => '?').join(',');
+
+    // 1. Identify which rent charges are affected by allocations from these transactions
+    const affectedCharges = db.prepare(`
+      SELECT DISTINCT rent_charge_id 
+      FROM rent_payment_allocations 
+      WHERE transaction_id IN (${placeholders})
+    `).all(...ids).map(r => r.rent_charge_id);
+
+    // 2. Delete the payment allocations
+    db.prepare(`
+      DELETE FROM rent_payment_allocations 
+      WHERE transaction_id IN (${placeholders})
+    `).run(...ids);
+
+    // 3. For any income transaction that was a Security Deposit, also remove corresponding security_deposits entry
+    const secDepTxs = db.prepare(`
+      SELECT tenant_id, amount 
+      FROM transactions 
+      WHERE id IN (${placeholders}) AND transaction_type = 'income' AND category = 'Security Deposit'
+    `).all(...ids);
+
+    for (const dep of secDepTxs) {
+      if (dep.tenant_id) {
+        const match = db.prepare(`
+          SELECT id FROM security_deposits 
+          WHERE tenant_id = ? AND amount_received = ?
+          ORDER BY id DESC LIMIT 1
+        `).get(dep.tenant_id, dep.amount);
+        if (match) {
+          db.prepare("DELETE FROM security_deposits WHERE id = ?").run(match.id);
+        }
+      }
+    }
+
+    // 4. Delete the transactions themselves
+    const result = db.prepare(`
+      DELETE FROM transactions 
+      WHERE id IN (${placeholders})
+    `).run(...ids);
+
+    // 5. Update amount_paid for all affected rent charges
+    if (affectedCharges.length > 0) {
+      const updateCharge = db.prepare(`
+        UPDATE rent_charges
+        SET amount_paid = (
+          SELECT COALESCE(SUM(amount_allocated), 0) 
+          FROM rent_payment_allocations 
+          WHERE rent_charge_id = ?
+        ),
+        updated_at = datetime('now')
+        WHERE id = ?
+      `);
+
+      for (const chgId of affectedCharges) {
+        updateCharge.run(chgId, chgId);
+      }
+    }
+
+    // 6. Recalculate status of all rent charges
+    updateChargeStatuses();
+
+    return result.changes;
+  });
+
+  const deletedCount = deleteTx();
+  return { deletedCount };
+}
+
+// Single transaction delete
+app.delete('/api/transactions/:id', (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id || isNaN(id)) {
+      return res.status(400).json({ error: "Invalid transaction ID" });
+    }
+    const { deletedCount } = deleteTransactionsInternal([id]);
+    res.json({ success: true, count: deletedCount });
+  } catch (err) {
+    console.error('Error deleting transaction:', err);
+    res.status(500).json({ error: err.message || "Failed to delete transaction" });
+  }
+});
+
+// Bulk transaction delete (supports both POST /bulk-delete and DELETE /transactions)
+app.post('/api/transactions/bulk-delete', (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "ids array required" });
+    }
+    const { deletedCount } = deleteTransactionsInternal(ids);
+    res.json({ success: true, count: deletedCount });
+  } catch (err) {
+    console.error('Error bulk deleting transactions:', err);
+    res.status(500).json({ error: err.message || "Failed to bulk delete transactions" });
+  }
+});
+
+app.delete('/api/transactions', (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "ids array required" });
+    }
+    const { deletedCount } = deleteTransactionsInternal(ids);
+    res.json({ success: true, count: deletedCount });
+  } catch (err) {
+    console.error('Error bulk deleting transactions:', err);
+    res.status(500).json({ error: err.message || "Failed to bulk delete transactions" });
+  }
+});
+
 // Dedicated Expenses & Construction Capex API
 app.get('/api/expenses', (req, res) => {
   const { property_id, expense_type } = req.query;

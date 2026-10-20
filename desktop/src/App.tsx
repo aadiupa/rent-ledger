@@ -142,6 +142,7 @@ export const App: React.FC = () => {
           <TransactionsView
             transactions={transactions}
             onOpenRecordModal={() => handleOpenRecordModal()}
+            onRefresh={refreshData}
           />
         )}
 
@@ -153,6 +154,7 @@ export const App: React.FC = () => {
               setIsRecordExpenseOpen(true);
             }}
             onOpenAddProperty={() => setIsAddPropertyOpen(true)}
+            onRefresh={refreshData}
           />
         )}
 

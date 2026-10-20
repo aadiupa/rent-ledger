@@ -126,6 +126,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+  deleteTransaction: (id: number) =>
+    request<{ success: boolean; count: number }>(`/transactions/${id}`, {
+      method: 'DELETE',
+    }),
+  bulkDeleteTransactions: (ids: number[]) =>
+    request<{ success: boolean; count: number }>('/transactions/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    }),
 
   // Security Deposits
   getDeposits: () => request<SecurityDeposit[]>('/deposits'),

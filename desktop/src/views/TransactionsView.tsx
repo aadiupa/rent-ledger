@@ -6,24 +6,35 @@ import {
   Download,
   ArrowDownLeft,
   ArrowUpRight,
-  Filter,
-  CheckCircle,
+  Trash2,
+  AlertTriangle,
+  X,
 } from 'lucide-react';
 import { Transaction } from '../types';
 import { formatINR, formatDate } from '../utils/format';
+import { api } from '../api';
 
 interface TransactionsViewProps {
   transactions: Transaction[];
   onOpenRecordModal: () => void;
+  onRefresh?: () => Promise<void> | void;
 }
 
 export const TransactionsView: React.FC<TransactionsViewProps> = ({
   transactions,
   onOpenRecordModal,
+  onRefresh,
 }) => {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+
+  // Multi-select & Delete states
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [itemToDelete, setItemToDelete] = useState<Transaction | null>(null);
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const filtered = transactions.filter((tx) => {
     const matchesType = typeFilter === 'all' || tx.transaction_type === typeFilter;
@@ -44,8 +55,72 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
     .filter((tx) => tx.transaction_type === 'expense')
     .reduce((sum, tx) => sum + tx.amount, 0);
 
+  // Selection calculations
+  const filteredIds = filtered.map((tx) => tx.id);
+  const allFilteredSelected =
+    filteredIds.length > 0 && filteredIds.every((id) => selectedIds.includes(id));
+  const someFilteredSelected =
+    filteredIds.some((id) => selectedIds.includes(id)) && !allFilteredSelected;
+
+  const toggleSelectAll = () => {
+    if (allFilteredSelected) {
+      setSelectedIds((prev) => prev.filter((id) => !filteredIds.includes(id)));
+    } else {
+      setSelectedIds((prev) => Array.from(new Set([...prev, ...filteredIds])));
+    }
+  };
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectedTxs = transactions.filter((t) => selectedIds.includes(t.id));
+  const selectedInflow = selectedTxs
+    .filter((t) => t.transaction_type === 'income')
+    .reduce((sum, t) => sum + t.amount, 0);
+  const selectedOutflow = selectedTxs
+    .filter((t) => t.transaction_type === 'expense')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  // Single delete execution
+  const handleConfirmSingleDelete = async () => {
+    if (!itemToDelete) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.deleteTransaction(itemToDelete.id);
+      setSelectedIds((prev) => prev.filter((id) => id !== itemToDelete.id));
+      setItemToDelete(null);
+      if (onRefresh) await onRefresh();
+    } catch (err: any) {
+      setDeleteError(err.message || 'Failed to delete transaction');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // Bulk delete execution
+  const handleConfirmBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.bulkDeleteTransactions(selectedIds);
+      setSelectedIds([]);
+      setShowBulkConfirm(false);
+      if (onRefresh) await onRefresh();
+    } catch (err: any) {
+      setDeleteError(err.message || 'Failed to delete selected transactions');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   // CSV export function
   const handleExportCSV = () => {
+    const targetList = selectedIds.length > 0 ? selectedTxs : filtered;
     const headers = [
       'ID',
       'Date',
@@ -58,7 +133,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
       'Reference',
       'Description',
     ];
-    const rows = filtered.map((tx) => [
+    const rows = targetList.map((tx) => [
       tx.id,
       tx.date,
       tx.transaction_type,
@@ -77,7 +152,10 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `rentledger_transactions_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute(
+      'download',
+      `rentledger_transactions_${new Date().toISOString().split('T')[0]}.csv`
+    );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -90,7 +168,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         <div>
           <h1 className="text-xl font-bold text-gray-900 tracking-tight">Financial Ledger</h1>
           <p className="text-xs text-gray-500">
-            Immutable transaction history of all rent collections, security deposits & landlord expenses
+            Real-time transaction history of all rent collections, security deposits & landlord expenses
           </p>
         </div>
 
@@ -100,7 +178,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg shadow-xs transition"
           >
             <Download className="w-3.5 h-3.5 text-gray-500" />
-            <span>Export CSV</span>
+            <span>{selectedIds.length > 0 ? `Export (${selectedIds.length})` : 'Export CSV'}</span>
           </button>
           <button
             onClick={onOpenRecordModal}
@@ -195,70 +273,300 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         </div>
       </div>
 
+      {/* Multi-Select Floating Action Bar */}
+      {selectedIds.length > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-gray-900 text-white rounded-xl shadow-lg border border-gray-800 transition">
+          <div className="flex items-center gap-3">
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white/20 text-white text-xs font-bold font-mono">
+              {selectedIds.length}
+            </span>
+            <span className="text-xs font-medium">
+              {selectedIds.length} transaction{selectedIds.length > 1 ? 's' : ''} selected
+            </span>
+            <div className="hidden sm:flex items-center gap-3 text-xs font-mono border-l border-gray-700 pl-3">
+              {selectedInflow > 0 && (
+                <span className="text-emerald-400">+{formatINR(selectedInflow)}</span>
+              )}
+              {selectedOutflow > 0 && (
+                <span className="text-rose-400">-{formatINR(selectedOutflow)}</span>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSelectedIds([])}
+              className="px-3 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition"
+            >
+              Deselect All
+            </button>
+            <button
+              onClick={() => setShowBulkConfirm(true)}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs transition"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Selected ({selectedIds.length})</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Table */}
       <div className="rounded-xl bg-white border border-gray-200/80 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/70 text-gray-500 font-semibold uppercase text-[10px] tracking-wider">
+                <th className="py-3 px-3 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    checked={allFilteredSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = someFilteredSelected;
+                    }}
+                    onChange={toggleSelectAll}
+                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900 cursor-pointer"
+                    aria-label="Select all"
+                  />
+                </th>
                 <th className="py-3 px-4">Date</th>
                 <th className="py-3 px-4">Description & Notes</th>
                 <th className="py-3 px-4">Category</th>
                 <th className="py-3 px-4">Entity / Tenant</th>
                 <th className="py-3 px-4">Method & Ref</th>
                 <th className="py-3 px-4 text-right">Amount</th>
+                <th className="py-3 px-3 w-14 text-center">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filtered.map((tx) => {
-                const isIncome = tx.transaction_type === 'income';
-                return (
-                  <tr key={tx.id} className="hover:bg-gray-50/60 transition">
-                    <td className="py-3.5 px-4 font-medium text-gray-600 whitespace-nowrap">
-                      {formatDate(tx.date)}
-                    </td>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-8 text-center text-gray-400">
+                    No transactions found matching your criteria.
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((tx) => {
+                  const isIncome = tx.transaction_type === 'income';
+                  const isSelected = selectedIds.includes(tx.id);
+                  return (
+                    <tr
+                      key={tx.id}
+                      className={`transition ${
+                        isSelected ? 'bg-indigo-50/40' : 'hover:bg-gray-50/60'
+                      }`}
+                    >
+                      <td className="py-3.5 px-3 w-10 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelect(tx.id)}
+                          className="rounded border-gray-300 text-gray-900 focus:ring-gray-900 cursor-pointer"
+                        />
+                      </td>
 
-                    <td className="py-3.5 px-4">
-                      <div className="font-semibold text-gray-900">{tx.description}</div>
-                      {tx.property_name && (
-                        <div className="text-[11px] text-gray-400">{tx.property_name}</div>
-                      )}
-                    </td>
+                      <td className="py-3.5 px-4 font-medium text-gray-600 whitespace-nowrap">
+                        {formatDate(tx.date)}
+                      </td>
 
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                        {tx.category}
-                      </span>
-                    </td>
+                      <td className="py-3.5 px-4">
+                        <div className="font-semibold text-gray-900">{tx.description}</div>
+                        {tx.property_name && (
+                          <div className="text-[11px] text-gray-400">{tx.property_name}</div>
+                        )}
+                      </td>
 
-                    <td className="py-3.5 px-4 text-gray-800">
-                      {tx.tenant_name || <span className="text-gray-400">—</span>}
-                    </td>
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                          {tx.category}
+                        </span>
+                      </td>
 
-                    <td className="py-3.5 px-4 whitespace-nowrap text-gray-500">
-                      <div>{tx.payment_method || 'Direct'}</div>
-                      {tx.reference && (
-                        <div className="text-[10px] text-gray-400 font-mono">{tx.reference}</div>
-                      )}
-                    </td>
+                      <td className="py-3.5 px-4 text-gray-800">
+                        {tx.tenant_name || <span className="text-gray-400">—</span>}
+                      </td>
 
-                    <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                      <span
-                        className={`font-mono font-bold text-sm ${
-                          isIncome ? 'text-emerald-600' : 'text-gray-900'
-                        }`}
-                      >
-                        {isIncome ? '+' : '-'}
-                        {formatINR(tx.amount)}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
+                      <td className="py-3.5 px-4 whitespace-nowrap text-gray-500">
+                        <div>{tx.payment_method || 'Direct'}</div>
+                        {tx.reference && (
+                          <div className="text-[10px] text-gray-400 font-mono">{tx.reference}</div>
+                        )}
+                      </td>
+
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <span
+                          className={`font-mono font-bold text-sm ${
+                            isIncome ? 'text-emerald-600' : 'text-gray-900'
+                          }`}
+                        >
+                          {isIncome ? '+' : '-'}
+                          {formatINR(tx.amount)}
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-3 w-14 text-center">
+                        <button
+                          onClick={() => setItemToDelete(tx)}
+                          title="Remove from ledger"
+                          className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Single Delete Confirmation Modal */}
+      {itemToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-gray-100 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 bg-rose-50 rounded-xl text-rose-600 shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-base font-bold text-gray-900 tracking-tight">
+                    Remove from Ledger?
+                  </h3>
+                  <p className="text-xs text-gray-500 leading-relaxed">
+                    Deleting this transaction will recompute available ledger cash and reverse any associated rent payment allocations.
+                  </p>
+                </div>
+              </div>
+
+              {deleteError && (
+                <div className="p-3 text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-lg">
+                  {deleteError}
+                </div>
+              )}
+
+              <div className="p-3 bg-gray-50 rounded-xl border border-gray-200/60 text-xs space-y-1.5 text-gray-600">
+                <div className="flex justify-between">
+                  <span>Date:</span>
+                  <span className="font-semibold text-gray-900">{formatDate(itemToDelete.date)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Category:</span>
+                  <span className="font-semibold text-gray-900">{itemToDelete.category}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Description:</span>
+                  <span className="font-semibold text-gray-900 truncate max-w-[200px]">
+                    {itemToDelete.description}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Amount:</span>
+                  <span
+                    className={`font-mono font-bold ${
+                      itemToDelete.transaction_type === 'income' ? 'text-emerald-600' : 'text-gray-900'
+                    }`}
+                  >
+                    {itemToDelete.transaction_type === 'income' ? '+' : '-'}
+                    {formatINR(itemToDelete.amount)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setItemToDelete(null)}
+                  className="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={handleConfirmSingleDelete}
+                  className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs transition disabled:opacity-50"
+                >
+                  {isDeleting ? 'Removing...' : 'Yes, Remove Record'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation Modal */}
+      {showBulkConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-gray-100 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 bg-rose-50 rounded-xl text-rose-600 shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-base font-bold text-gray-900 tracking-tight">
+                    Delete {selectedIds.length} Selected Transactions?
+                  </h3>
+                  <p className="text-xs text-gray-500 leading-relaxed">
+                    This will permanently delete {selectedIds.length} transactions from the ledger. Dependent rent arrears and ledger cash balances will be automatically recalculated.
+                  </p>
+                </div>
+              </div>
+
+              {deleteError && (
+                <div className="p-3 text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-lg">
+                  {deleteError}
+                </div>
+              )}
+
+              <div className="p-3 bg-gray-50 rounded-xl border border-gray-200/60 text-xs space-y-1.5 text-gray-600">
+                <div className="flex justify-between">
+                  <span>Selected Count:</span>
+                  <span className="font-semibold text-gray-900">{selectedIds.length} records</span>
+                </div>
+                {selectedInflow > 0 && (
+                  <div className="flex justify-between">
+                    <span>Income Reversals:</span>
+                    <span className="font-mono font-bold text-emerald-600">+{formatINR(selectedInflow)}</span>
+                  </div>
+                )}
+                {selectedOutflow > 0 && (
+                  <div className="flex justify-between">
+                    <span>Expense Reversals:</span>
+                    <span className="font-mono font-bold text-rose-600">-{formatINR(selectedOutflow)}</span>
+                  </div>
+                )}
+                <div className="text-[11px] text-gray-500 pt-1 border-t border-gray-200/60">
+                  ⚠️ This action cannot be undone.
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setShowBulkConfirm(false)}
+                  className="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={handleConfirmBulkDelete}
+                  className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs transition disabled:opacity-50"
+                >
+                  {isDeleting ? 'Deleting...' : `Yes, Delete ${selectedIds.length} Transactions`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
