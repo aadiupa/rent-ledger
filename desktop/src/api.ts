@@ -72,8 +72,11 @@ export const api = {
   updateTenant: (
     id: number,
     data: {
+      property_id?: number;
+      unit_id?: number | null;
       monthly_rent?: number;
       rent_due_day?: number;
+      security_deposit?: number;
       opening_arrears?: number;
       is_active?: boolean;
       notes?: string;

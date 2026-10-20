@@ -263,7 +263,72 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     expect(updated.waived_reason).toBe('Diwali landlord festive waiver');
   });
 
-  test('E2E Scenario 6: Construction Capex & Operational Expenses Tracking', async () => {
+  test('E2E Scenario 6: Security Deposit Modification & Inter-Property Tenant Relocation', async () => {
+    // 1. Change security deposit from ₹60,000 (6000000) to ₹85,000 (8500000)
+    const patchDepositRes = await request(`/tenants/${testTenantId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        security_deposit: 8500000,
+      }),
+    });
+    expect(patchDepositRes.success).toBe(true);
+
+    // Verify tenant deposit_held is updated
+    const tenantAfterDeposit = await request(`/tenants/${testTenantId}`);
+    expect(tenantAfterDeposit.deposit_held).toBe(8500000);
+
+    // Verify security deposit register entry updated
+    const deposits = await request('/deposits');
+    const tenantDeposit = deposits.find((d: any) => d.tenant_id === testTenantId);
+    expect(tenantDeposit).toBeDefined();
+    expect(tenantDeposit.amount_received).toBe(8500000);
+
+    // Verify transaction ledger updated to maintain cash balance integrity
+    const txs = await request('/transactions');
+    const depTx = txs.find((t: any) => t.tenant_id === testTenantId && t.category === 'Security Deposit');
+    expect(depTx).toBeDefined();
+    expect(depTx.amount).toBe(8500000);
+
+    // 2. Move tenant to another property (inter-property relocation)
+    const moveRes = await request(`/tenants/${testTenantId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        property_id: constructionPropertyId,
+      }),
+    });
+    expect(moveRes.success).toBe(true);
+
+    // Verify tenant assigned property changed
+    const tenantAfterMove = await request(`/tenants/${testTenantId}`);
+    expect(tenantAfterMove.property_id).toBe(constructionPropertyId);
+
+    // Verify deposit record moved to new property
+    const depositsAfterMove = await request('/deposits');
+    const tenantDepositAfterMove = depositsAfterMove.find((d: any) => d.tenant_id === testTenantId);
+    expect(tenantDepositAfterMove.property_id).toBe(constructionPropertyId);
+
+    // Verify unpaid rent charges moved to new property
+    const chargesAfterMove = await request('/charges');
+    const unpaidTenantCharges = chargesAfterMove.filter(
+      (c: any) => c.tenant_id === testTenantId && c.status !== 'paid'
+    );
+    expect(unpaidTenantCharges.length).toBeGreaterThan(0);
+    for (const c of unpaidTenantCharges) {
+      expect(c.property_id).toBe(constructionPropertyId);
+    }
+
+    // Move back to createdPropertyId to maintain test state consistency
+    await request(`/tenants/${testTenantId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        property_id: createdPropertyId,
+      }),
+    });
+    const tenantFinal = await request(`/tenants/${testTenantId}`);
+    expect(tenantFinal.property_id).toBe(createdPropertyId);
+  });
+
+  test('E2E Scenario 7: Construction Capex & Operational Expenses Tracking', async () => {
     // 1. Record Construction Capex 1: Raw Materials
     const txCapex1 = await request('/transactions', {
       method: 'POST',
@@ -327,7 +392,7 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     expect(constrSpend.total_spent).toBe(21000000);
   });
 
-  test('E2E Scenario 7: Single & Multi-Select Removal with Automatic Balance Restoration', async () => {
+  test('E2E Scenario 8: Single & Multi-Select Removal with Automatic Balance Restoration', async () => {
     const dashBefore = await request('/dashboard');
     const cashBefore = dashBefore.available_cash;
 
@@ -360,7 +425,7 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     expect(tenantAfterTxDel.arrears).toBe(arrearsBeforeTxDel + 3500000);
   });
 
-  test('E2E Scenario 8: Single & Bulk Deletion of Rent Charges & Dues', async () => {
+  test('E2E Scenario 9: Single & Bulk Deletion of Rent Charges & Dues', async () => {
     // 1. Fetch current charges for tenant
     const charges = await request('/charges');
     const tenantCharges = charges.filter((c: any) => c.tenant_id === testTenantId);
@@ -396,7 +461,7 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     }
   });
 
-  test('E2E Scenario 9: Tenant Deletion with Safe Cascade & Cash Integrity', async () => {
+  test('E2E Scenario 10: Tenant Deletion with Safe Cascade & Cash Integrity', async () => {
     // Verify tenant exists before deletion
     const tenantBefore = await request(`/tenants/${testTenantId}`);
     expect(tenantBefore).toBeDefined();
@@ -423,7 +488,7 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     expect(Array.isArray(txs)).toBe(true);
   });
 
-  test('E2E Scenario 10: Safe Property Deletion & Cascade', async () => {
+  test('E2E Scenario 11: Safe Property Deletion & Cascade', async () => {
     // Delete the active property
     const delRes = await request(`/properties/${createdPropertyId}`, {
       method: 'DELETE',
@@ -439,7 +504,7 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     expect(Array.isArray(txs)).toBe(true);
   });
 
-  test('E2E Scenario 11: Settings Persistence & Dynamic Cash Ledger', async () => {
+  test('E2E Scenario 12: Settings Persistence & Dynamic Cash Ledger', async () => {
     // Update opening cash balance and auto-generate setting
     const patchSettings = await request('/settings', {
       method: 'PATCH',

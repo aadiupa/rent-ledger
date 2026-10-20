@@ -203,6 +203,7 @@ export const App: React.FC = () => {
         isOpen={Boolean(editingTenant)}
         onClose={() => setEditingTenant(null)}
         onSuccess={refreshData}
+        properties={properties}
       />
 
       {/* Option to change liability rent at Charge level */}

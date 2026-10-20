@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, CheckCircle, AlertCircle } from 'lucide-react';
-import { Tenant } from '../types';
+import { X, CheckCircle, AlertCircle, Building2, Shield, DollarSign } from 'lucide-react';
+import { Tenant, Property } from '../types';
 import { formatINR, rupeesToPaise, paiseToRupees } from '../utils/format';
 
 interface EditTenantModalProps {
@@ -8,6 +8,7 @@ interface EditTenantModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  properties?: Property[];
 }
 
 export const EditTenantModal: React.FC<EditTenantModalProps> = ({
@@ -15,7 +16,10 @@ export const EditTenantModal: React.FC<EditTenantModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
+  properties = [],
 }) => {
+  const [propertyId, setPropertyId] = useState<number>(1);
+  const [securityDepositRupees, setSecurityDepositRupees] = useState<string>('');
   const [monthlyRentRupees, setMonthlyRentRupees] = useState<string>('');
   const [rentDueDay, setRentDueDay] = useState<number>(1);
   const [openingArrearsRupees, setOpeningArrearsRupees] = useState<string>('');
@@ -28,6 +32,12 @@ export const EditTenantModal: React.FC<EditTenantModalProps> = ({
 
   useEffect(() => {
     if (tenant) {
+      setPropertyId(tenant.property_id);
+      const depositVal =
+        tenant.deposit_held !== undefined && tenant.deposit_held !== null
+          ? tenant.deposit_held
+          : (tenant.security_deposit || 0);
+      setSecurityDepositRupees(String(paiseToRupees(depositVal)));
       setMonthlyRentRupees(String(paiseToRupees(tenant.monthly_rent)));
       setRentDueDay(tenant.rent_due_day || 1);
       setOpeningArrearsRupees(String(paiseToRupees(tenant.opening_arrears || 0)));
@@ -52,6 +62,7 @@ export const EditTenantModal: React.FC<EditTenantModalProps> = ({
     }
 
     const arrearsPaise = rupeesToPaise(openingArrearsRupees);
+    const depositPaise = rupeesToPaise(securityDepositRupees);
 
     setIsSubmitting(true);
     try {
@@ -59,6 +70,8 @@ export const EditTenantModal: React.FC<EditTenantModalProps> = ({
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          property_id: Number(propertyId),
+          security_deposit: depositPaise,
           monthly_rent: rentPaise,
           rent_due_day: Number(rentDueDay),
           opening_arrears: arrearsPaise,
@@ -71,7 +84,7 @@ export const EditTenantModal: React.FC<EditTenantModalProps> = ({
 
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error || 'Failed to update tenant liabilities');
+        throw new Error(err.error || 'Failed to update tenant details');
       }
 
       onSuccess();
@@ -83,6 +96,8 @@ export const EditTenantModal: React.FC<EditTenantModalProps> = ({
     }
   };
 
+  const hasMovedProperty = Number(propertyId) !== tenant.property_id;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
       <div className="bg-white rounded-2xl shadow-xl border border-gray-200/80 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
@@ -90,10 +105,10 @@ export const EditTenantModal: React.FC<EditTenantModalProps> = ({
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div>
             <h2 className="text-base font-semibold text-gray-900">
-              Change Rent & Liabilities — {tenant.name}
+              Edit Tenant & Lease — {tenant.name}
             </h2>
             <p className="text-xs text-gray-500">
-              Update monthly contract rent, due schedule, or opening ledger balance
+              Reassign property, update security deposit, monthly rent, and lease terms
             </p>
           </div>
           <button
@@ -105,7 +120,7 @@ export const EditTenantModal: React.FC<EditTenantModalProps> = ({
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
           {error && (
             <div className="p-3 text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-lg flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -113,11 +128,19 @@ export const EditTenantModal: React.FC<EditTenantModalProps> = ({
             </div>
           )}
 
-          {/* Current Liabilities Context Banner */}
+          {/* Current Summary Context Banner */}
           <div className="p-3 bg-amber-50/60 border border-amber-200/70 rounded-xl text-xs space-y-1">
             <div className="flex justify-between text-gray-600">
-              <span>Property:</span>
-              <span className="font-semibold text-gray-900">{tenant.property_name} {tenant.unit_name ? `(${tenant.unit_name})` : ''}</span>
+              <span>Current Property:</span>
+              <span className="font-semibold text-gray-900">
+                {tenant.property_name} {tenant.unit_name ? `(${tenant.unit_name})` : ''}
+              </span>
+            </div>
+            <div className="flex justify-between text-gray-600">
+              <span>Security Deposit Held:</span>
+              <span className="font-mono font-semibold text-emerald-700">
+                {formatINR(tenant.deposit_held !== undefined ? tenant.deposit_held : (tenant.security_deposit || 0))}
+              </span>
             </div>
             <div className="flex justify-between text-gray-600">
               <span>Current Outstanding Arrears:</span>
@@ -125,27 +148,81 @@ export const EditTenantModal: React.FC<EditTenantModalProps> = ({
             </div>
           </div>
 
-          {/* Monthly Contract Rent */}
+          {/* Move Tenant to Another Property */}
           <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1">
-              Monthly Recurring Rent (₹ Rupees)
+            <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 mb-1">
+              <Building2 className="w-3.5 h-3.5 text-gray-500" />
+              <span>Assigned Property (Move Tenant)</span>
             </label>
-            <div className="relative">
-              <span className="absolute left-3 top-2 text-sm text-gray-400 font-bold">₹</span>
-              <input
-                type="number"
-                value={monthlyRentRupees}
-                onChange={(e) => setMonthlyRentRupees(e.target.value)}
-                className="w-full text-sm font-semibold pl-7 pr-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900"
-                required
-                min="100"
-              />
-            </div>
-            {monthlyRentRupees && Number(monthlyRentRupees) > 0 && (
-              <p className="text-[11px] text-gray-500 mt-1 font-mono">
-                {formatINR(rupeesToPaise(monthlyRentRupees))} per month
+            <select
+              value={propertyId}
+              onChange={(e) => setPropertyId(Number(e.target.value))}
+              className="w-full text-xs rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 font-medium"
+            >
+              {properties.length > 0 ? (
+                properties.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} {p.status === 'under_construction' ? '(Under Construction)' : ''}
+                  </option>
+                ))
+              ) : (
+                <option value={tenant.property_id}>{tenant.property_name || `Property #${tenant.property_id}`}</option>
+              )}
+            </select>
+            {hasMovedProperty && (
+              <p className="text-[11px] text-amber-700 bg-amber-50/80 border border-amber-200 rounded p-1.5 mt-1 font-medium">
+                ⚠️ Moving this tenant will reassign their security deposit record and any upcoming unpaid rent charges to the new property.
               </p>
             )}
+          </div>
+
+          {/* Monthly Rent & Security Deposit */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="flex items-center gap-1 text-xs font-semibold text-gray-700 mb-1">
+                <DollarSign className="w-3.5 h-3.5 text-gray-500" />
+                <span>Monthly Rent (₹)</span>
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-2 text-xs text-gray-400 font-bold">₹</span>
+                <input
+                  type="number"
+                  value={monthlyRentRupees}
+                  onChange={(e) => setMonthlyRentRupees(e.target.value)}
+                  className="w-full text-xs font-semibold pl-6 pr-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                  required
+                  min="100"
+                />
+              </div>
+              {monthlyRentRupees && Number(monthlyRentRupees) > 0 && (
+                <p className="text-[10px] text-gray-500 mt-0.5 font-mono">
+                  {formatINR(rupeesToPaise(monthlyRentRupees))}/mo
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="flex items-center gap-1 text-xs font-semibold text-gray-700 mb-1">
+                <Shield className="w-3.5 h-3.5 text-gray-500" />
+                <span>Security Deposit (₹)</span>
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-2 text-xs text-gray-400 font-bold">₹</span>
+                <input
+                  type="number"
+                  value={securityDepositRupees}
+                  onChange={(e) => setSecurityDepositRupees(e.target.value)}
+                  placeholder="0"
+                  className="w-full text-xs font-semibold pl-6 pr-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                  min="0"
+                />
+              </div>
+              {securityDepositRupees && Number(securityDepositRupees) > 0 && (
+                <p className="text-[10px] text-gray-500 mt-0.5 font-mono">
+                  {formatINR(rupeesToPaise(securityDepositRupees))} held
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Rent Due Day & Opening Arrears */}
@@ -247,7 +324,7 @@ export const EditTenantModal: React.FC<EditTenantModalProps> = ({
               className="flex items-center gap-2 px-5 py-2 text-xs font-semibold bg-gray-900 hover:bg-black text-white rounded-lg shadow-sm transition disabled:opacity-50"
             >
               <CheckCircle className="w-4 h-4 text-emerald-400" />
-              <span>{isSubmitting ? 'Saving...' : 'Update Liabilities'}</span>
+              <span>{isSubmitting ? 'Saving...' : 'Save Changes'}</span>
             </button>
           </div>
         </form>

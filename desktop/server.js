@@ -474,14 +474,17 @@ app.post('/api/tenants', (req, res) => {
   res.json({ id: tenantId });
 });
 
-// Update Tenant (including recurring monthly rent, due day, opening arrears!)
+// Update Tenant (recurring monthly rent, due day, moving property, security deposit, opening arrears)
 app.patch('/api/tenants/:id', (req, res) => {
-  const { monthly_rent, rent_due_day, opening_arrears, is_active, notes, contact_phone, contact_email } = req.body;
+  const { property_id, unit_id, monthly_rent, rent_due_day, security_deposit, opening_arrears, is_active, notes, contact_phone, contact_email } = req.body;
   const updates = [];
   const params = [];
 
+  if (property_id !== undefined) { updates.push("property_id = ?"); params.push(property_id); }
+  if (unit_id !== undefined) { updates.push("unit_id = ?"); params.push(unit_id); }
   if (monthly_rent !== undefined) { updates.push("monthly_rent = ?"); params.push(monthly_rent); }
   if (rent_due_day !== undefined) { updates.push("rent_due_day = ?"); params.push(rent_due_day); }
+  if (security_deposit !== undefined) { updates.push("security_deposit = ?"); params.push(security_deposit); }
   if (opening_arrears !== undefined) { updates.push("opening_arrears = ?"); params.push(opening_arrears); }
   if (is_active !== undefined) { updates.push("is_active = ?"); params.push(is_active ? 1 : 0); }
   if (notes !== undefined) { updates.push("notes = ?"); params.push(notes); }
@@ -492,6 +495,76 @@ app.patch('/api/tenants/:id', (req, res) => {
     updates.push("updated_at = datetime('now')");
     params.push(req.params.id);
     db.prepare(`UPDATE tenants SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+  }
+
+  const tenantId = req.params.id;
+
+  // If moved to another property, update security_deposits, unpaid rent charges, and deposit transactions to point to new property
+  if (property_id !== undefined) {
+    db.prepare(`
+      UPDATE security_deposits 
+      SET property_id = ?, updated_at = datetime('now')
+      WHERE tenant_id = ?
+    `).run(property_id, tenantId);
+
+    db.prepare(`
+      UPDATE rent_charges 
+      SET property_id = ?, updated_at = datetime('now')
+      WHERE tenant_id = ? AND status != 'paid'
+    `).run(property_id, tenantId);
+
+    db.prepare(`
+      UPDATE transactions 
+      SET property_id = ?, updated_at = datetime('now')
+      WHERE tenant_id = ? AND category = 'Security Deposit' AND transaction_type = 'income'
+    `).run(property_id, tenantId);
+  }
+
+  // If security_deposit was modified, synchronize security_deposits register and transactions
+  if (security_deposit !== undefined) {
+    const existingDep = db.prepare("SELECT * FROM security_deposits WHERE tenant_id = ? ORDER BY id DESC LIMIT 1").get(tenantId);
+    const tenant = db.prepare("SELECT * FROM tenants WHERE id = ?").get(tenantId);
+    const currentPropId = property_id !== undefined ? property_id : tenant?.property_id;
+
+    if (existingDep) {
+      db.prepare(`
+        UPDATE security_deposits 
+        SET amount_received = ?, property_id = ?, updated_at = datetime('now') 
+        WHERE id = ?
+      `).run(security_deposit, currentPropId, existingDep.id);
+
+      // Keep matching income transaction synchronized so available cash reflects the change
+      const depTx = db.prepare(`
+        SELECT id FROM transactions 
+        WHERE tenant_id = ? AND category = 'Security Deposit' AND transaction_type = 'income' 
+        ORDER BY id DESC LIMIT 1
+      `).get(tenantId);
+
+      if (depTx) {
+        db.prepare(`
+          UPDATE transactions 
+          SET amount = ?, property_id = ?, updated_at = datetime('now')
+          WHERE id = ?
+        `).run(security_deposit, currentPropId, depTx.id);
+      } else if (security_deposit > 0) {
+        const today = new Date().toISOString().split('T')[0];
+        db.prepare(`
+          INSERT INTO transactions (date, property_id, tenant_id, transaction_type, category, amount, description)
+          VALUES (?, ?, ?, 'income', 'Security Deposit', ?, ?)
+        `).run(tenant?.lease_start || today, currentPropId, tenantId, security_deposit, `Security deposit adjusted for ${tenant?.name || 'tenant'}`);
+      }
+    } else if (security_deposit > 0 && tenant) {
+      const today = new Date().toISOString().split('T')[0];
+      db.prepare(`
+        INSERT INTO security_deposits (tenant_id, property_id, receipt_date, amount_received, status)
+        VALUES (?, ?, ?, ?, 'held')
+      `).run(tenantId, currentPropId, tenant.lease_start || today, security_deposit);
+
+      db.prepare(`
+        INSERT INTO transactions (date, property_id, tenant_id, transaction_type, category, amount, description)
+        VALUES (?, ?, ?, 'income', 'Security Deposit', ?, ?)
+      `).run(tenant.lease_start || today, currentPropId, tenantId, security_deposit, `Security deposit adjusted for ${tenant.name}`);
+    }
   }
 
   res.json({ success: true });
