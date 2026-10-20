@@ -1,5 +1,5 @@
 import React from 'react';
-import { BarChart3, TrendingUp, AlertTriangle, Download, DollarSign } from 'lucide-react';
+import { Download, TrendingUp, DollarSign, PieChart } from 'lucide-react';
 import { Tenant, RentCharge, Transaction } from '../types';
 import { formatINR, formatPeriod } from '../utils/format';
 
@@ -33,14 +33,112 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const totalWaived = charges.reduce((sum, c) => sum + c.waived_amount, 0);
   const overallEfficiency = totalExpected > 0 ? Math.round((totalCollected / totalExpected) * 100) : 0;
 
+  // Cash Ledger P&L Aggregations
+  const totalIncome = transactions
+    .filter((tx) => tx.transaction_type === 'income')
+    .reduce((sum, tx) => sum + tx.amount, 0);
+
+  const totalOpex = transactions
+    .filter((tx) => tx.transaction_type === 'expense' && tx.expense_type !== 'capex')
+    .reduce((sum, tx) => sum + tx.amount, 0);
+
+  const totalCapex = transactions
+    .filter((tx) => tx.transaction_type === 'expense' && tx.expense_type === 'capex')
+    .reduce((sum, tx) => sum + tx.amount, 0);
+
+  const netCashFlow = totalIncome - totalOpex - totalCapex;
+
+  // Export Dues & Realization CSV
+  const handleExportCSV = () => {
+    const rows = [
+      ['Period', 'Rent Invoiced (Paise)', 'Rent Invoiced (INR)', 'Collected (Paise)', 'Collected (INR)', 'Waived (Paise)', 'Waived (INR)', 'Unpaid (Paise)', 'Unpaid (INR)', 'Collection Rate (%)'],
+    ];
+
+    for (const [periodKey, val] of sortedPeriods) {
+      const unpaid = Math.max(0, val.expected - val.collected - val.waived);
+      const rate = val.expected > 0 ? Math.round((val.collected / val.expected) * 100) : 0;
+      rows.push([
+        periodKey,
+        String(val.expected),
+        (val.expected / 100).toFixed(2),
+        String(val.collected),
+        (val.collected / 100).toFixed(2),
+        String(val.waived),
+        (val.waived / 100).toFixed(2),
+        String(unpaid),
+        (unpaid / 100).toFixed(2),
+        `${rate}%`,
+      ]);
+    }
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + rows.map((e) => e.join(',')).join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `rentledger-reports-${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
       {/* Top Header */}
-      <div>
-        <h1 className="text-xl font-bold text-gray-900 tracking-tight">Reports & Performance</h1>
-        <p className="text-xs text-gray-500">
-          Monthly P&L breakdown, rent realization rate, and arrears aging
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900 tracking-tight">Reports & Performance</h1>
+          <p className="text-xs text-gray-500">
+            Monthly P&L breakdown, rent realization rate, and arrears aging
+          </p>
+        </div>
+        <button
+          onClick={handleExportCSV}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-700 bg-white border border-gray-200/80 rounded-lg hover:bg-gray-50 shadow-xs transition"
+        >
+          <Download className="w-3.5 h-3.5 text-gray-500" />
+          Export Report CSV
+        </button>
+      </div>
+
+      {/* Cash P&L Overview */}
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="rounded-xl bg-white p-4 border border-gray-200/80 shadow-xs">
+          <div className="flex items-center justify-between text-xs font-medium text-gray-500 mb-1">
+            <span>Total Cash Inflow</span>
+            <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+          </div>
+          <div className="text-xl font-bold text-emerald-600 font-mono">{formatINR(totalIncome)}</div>
+          <div className="text-[11px] text-gray-400 mt-1">Rent + Deposits + Arrears</div>
+        </div>
+
+        <div className="rounded-xl bg-white p-4 border border-gray-200/80 shadow-xs">
+          <div className="flex items-center justify-between text-xs font-medium text-gray-500 mb-1">
+            <span>Operational Opex</span>
+            <PieChart className="w-3.5 h-3.5 text-amber-600" />
+          </div>
+          <div className="text-xl font-bold text-amber-700 font-mono">{formatINR(totalOpex)}</div>
+          <div className="text-[11px] text-gray-400 mt-1">Maintenance, taxes, utilities</div>
+        </div>
+
+        <div className="rounded-xl bg-white p-4 border border-gray-200/80 shadow-xs">
+          <div className="flex items-center justify-between text-xs font-medium text-gray-500 mb-1">
+            <span>Capital Capex</span>
+            <TrendingUp className="w-3.5 h-3.5 text-purple-600" />
+          </div>
+          <div className="text-xl font-bold text-purple-700 font-mono">{formatINR(totalCapex)}</div>
+          <div className="text-[11px] text-gray-400 mt-1">Construction & assets</div>
+        </div>
+
+        <div className="rounded-xl bg-white p-4 border border-gray-200/80 shadow-xs">
+          <div className="flex items-center justify-between text-xs font-medium text-gray-500 mb-1">
+            <span>Net Cash Flow</span>
+            <span className="text-[10px] font-bold uppercase text-gray-400">P&L</span>
+          </div>
+          <div className={`text-xl font-bold font-mono ${netCashFlow >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {formatINR(netCashFlow)}
+          </div>
+          <div className="text-[11px] text-gray-400 mt-1">Net surplus cash</div>
+        </div>
       </div>
 
       {/* Realization Summary */}

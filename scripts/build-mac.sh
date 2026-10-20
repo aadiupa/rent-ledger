@@ -27,6 +27,16 @@ if [ -f "mac-native/AppIcon.icns" ]; then
   cp mac-native/AppIcon.icns "$APP_DIR/Contents/Resources/"
 fi
 
+# Bundle backend & frontend runtime into Resources for true standalone operation
+echo "📦 Bundling desktop runtime into RentLedger.app/Contents/Resources/desktop..."
+mkdir -p "$APP_DIR/Contents/Resources/desktop"
+cp desktop/server.js "$APP_DIR/Contents/Resources/desktop/"
+cp desktop/package.json "$APP_DIR/Contents/Resources/desktop/"
+cp -R desktop/dist "$APP_DIR/Contents/Resources/desktop/"
+if [ -d "desktop/node_modules" ]; then
+  cp -R desktop/node_modules "$APP_DIR/Contents/Resources/desktop/"
+fi
+
 xattr -cr "$APP_DIR"
 
 echo "📥 Installing to ~/Applications/RentLedger.app..."

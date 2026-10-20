@@ -40,13 +40,14 @@ beforeAll(async () => {
     if (fs.existsSync(f)) fs.unlinkSync(f);
   }
 
-  // Spawn test instance of desktop server
+  // Spawn test instance of desktop server with pinned deterministic date
   const serverPath = path.join(__dirname, '../../desktop/server.js');
   serverProcess = spawn('node', [serverPath], {
     env: {
       ...process.env,
       PORT: String(TEST_PORT),
       DB_PATH: TEST_DB_PATH,
+      APP_DATE: '2026-10-21',
     },
     stdio: 'ignore',
   });
@@ -119,7 +120,8 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
 
     const tenant4 = tenants.find((t: any) => t.name === 'Tenant 4');
     expect(tenant4).toBeDefined();
-    expect(tenant4.arrears).toBe(114000000); // Opening arrears ₹4,90,000 + monthly charges ₹6,50,000
+    // Opening arrears ₹4,90,000 + monthly charges ₹6,50,000 - arrears recovery paid ₹2,00,000 = ₹9,40,000
+    expect(tenant4.arrears).toBe(94000000);
   });
 
   test('E2E Scenario 2: Property Management & Construction Capex Project Setup', async () => {

@@ -25,6 +25,21 @@ const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
+// IST Calendar Helpers (Asia/Kolkata) with date-pinning support for deterministic tests
+function getTodayIST() {
+  if (process.env.APP_DATE) return process.env.APP_DATE;
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+}
+
+function getDaysInMonth(year, month) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function parseDateParts(dateStr) {
+  const parts = (dateStr || getTodayIST()).split('-').map(Number);
+  return [parts[0], parts[1], parts[2] || 1];
+}
+
 // Initialize schema
 function initSchema() {
   db.exec(`
@@ -257,10 +272,68 @@ function seedSampleData() {
 
   // Auto-generate initial rent charges
   generateMonthlyCharges();
+
+  // Re-allocate all seeded rent & arrears receipts onto charges FIFO
+  for (const tid of [t1, t2, t3, t4]) {
+    reallocateTenantPayments(tid);
+  }
+}
+
+// Re-allocate all rent payments for a tenant onto charges FIFO
+function reallocateTenantPayments(tenantId) {
+  const tId = Number(tenantId);
+  if (!tId || isNaN(tId)) return;
+
+  const txs = db.prepare(`
+    SELECT id, amount, date FROM transactions 
+    WHERE tenant_id = ? AND transaction_type = 'income' AND category IN ('Monthly Rent', 'Arrears Recovery')
+    ORDER BY date ASC, id ASC
+  `).all(tId);
+
+  // Clear existing allocations for this tenant's charges
+  const chargeIds = db.prepare(`SELECT id FROM rent_charges WHERE tenant_id = ?`).all(tId).map(c => c.id);
+  if (chargeIds.length > 0) {
+    const placeholders = chargeIds.map(() => '?').join(',');
+    db.prepare(`DELETE FROM rent_payment_allocations WHERE rent_charge_id IN (${placeholders})`).run(...chargeIds);
+    db.prepare(`UPDATE rent_charges SET amount_paid = 0, updated_at = datetime('now') WHERE id IN (${placeholders})`).run(...chargeIds);
+  }
+
+  // Re-allocate FIFO to charges ordered by due_date ASC, id ASC
+  for (const tx of txs) {
+    const unpaid = db.prepare(`
+      SELECT * FROM rent_charges 
+      WHERE tenant_id = ? AND (amount_paid + waived_amount) < amount_due 
+      ORDER BY due_date ASC, id ASC
+    `).all(tId);
+
+    let remaining = tx.amount;
+    for (const chg of unpaid) {
+      if (remaining <= 0) break;
+      const needed = Math.max(0, chg.amount_due - chg.amount_paid - chg.waived_amount);
+      if (needed <= 0) continue;
+
+      const toAlloc = Math.min(remaining, needed);
+      db.prepare(`
+        INSERT INTO rent_payment_allocations (transaction_id, rent_charge_id, amount_allocated)
+        VALUES (?, ?, ?)
+        ON CONFLICT(transaction_id, rent_charge_id) DO UPDATE SET amount_allocated = amount_allocated + excluded.amount_allocated
+      `).run(tx.id, chg.id, toAlloc);
+
+      db.prepare(`
+        UPDATE rent_charges
+        SET amount_paid = amount_paid + ?, updated_at = datetime('now')
+        WHERE id = ?
+      `).run(toAlloc, chg.id);
+
+      remaining -= toAlloc;
+    }
+  }
+
+  updateChargeStatuses();
 }
 
 // Generate monthly rent charges idempotently (with prorated rent calculation for mid-month starts e.g. 25th)
-function generateMonthlyCharges(upToDate = new Date().toISOString().split('T')[0]) {
+function generateMonthlyCharges(upToDate = getTodayIST()) {
   const tenants = db.prepare("SELECT * FROM tenants WHERE is_active = 1").all();
   const insertCharge = db.prepare(`
     INSERT OR IGNORE INTO rent_charges (
@@ -273,14 +346,14 @@ function generateMonthlyCharges(upToDate = new Date().toISOString().split('T')[0
 
   for (const t of tenants) {
     if (!t.lease_start) continue;
-    const [startY, startM, startD] = t.lease_start.split('-').map(Number);
+    const [startY, startM, startD] = parseDateParts(t.lease_start);
     let y = startY;
     let m = startM;
 
-    const [todayY, todayM] = upToDate.split('-').slice(0, 2).map(Number);
+    const [todayY, todayM] = parseDateParts(upToDate);
 
     while (y < todayY || (y === todayY && m <= todayM)) {
-      const daysInMonth = new Date(y, m, 0).getDate();
+      const daysInMonth = getDaysInMonth(y, m);
       let amountDue = t.monthly_rent;
       let dueDate = '';
       let notes = null;
@@ -319,7 +392,7 @@ function generateMonthlyCharges(upToDate = new Date().toISOString().split('T')[0
   return count;
 }
 
-function updateChargeStatuses(today = new Date().toISOString().split('T')[0]) {
+function updateChargeStatuses(today = getTodayIST()) {
   db.prepare(`
     UPDATE rent_charges SET status = 'paid', updated_at = datetime('now')
     WHERE (amount_paid + waived_amount) >= amount_due
@@ -349,23 +422,25 @@ function getAvailableCash() {
   return opening + inc - exp;
 }
 
-function getTenantArrears(tenantId, asOfDate = new Date().toISOString().split('T')[0]) {
+function getTenantArrears(tenantId, asOfDate = getTodayIST()) {
   const tenant = db.prepare("SELECT * FROM tenants WHERE id = ?").get(tenantId);
   if (!tenant) return 0;
 
   const dueRow = db.prepare(`
     SELECT COALESCE(SUM(amount_due), 0) as total FROM rent_charges
-    WHERE tenant_id = ? AND due_date <= ? AND status != 'waived'
-  `).get(tenantId, asOfDate);
-
-  const paidRow = db.prepare(`
-    SELECT COALESCE(SUM(amount_paid), 0) as total FROM rent_charges
     WHERE tenant_id = ? AND due_date <= ?
   `).get(tenantId, asOfDate);
 
   const waivedRow = db.prepare(`
     SELECT COALESCE(SUM(waived_amount), 0) as total FROM rent_charges
     WHERE tenant_id = ? AND due_date <= ?
+  `).get(tenantId, asOfDate);
+
+  const paidRow = db.prepare(`
+    SELECT COALESCE(SUM(amount), 0) as total FROM transactions
+    WHERE tenant_id = ? AND transaction_type = 'income' 
+      AND category IN ('Monthly Rent', 'Arrears Recovery')
+      AND date <= ?
   `).get(tenantId, asOfDate);
 
   const balance = tenant.opening_arrears + dueRow.total - paidRow.total - waivedRow.total;
@@ -385,16 +460,18 @@ if (autoGen === '1') {
 
 // 1. Dashboard API
 app.get('/api/dashboard', (req, res) => {
-  const year = parseInt(req.query.year || new Date().getFullYear(), 10);
-  const month = parseInt(req.query.month || (new Date().getMonth() + 1), 10);
+  const [curY, curM] = parseDateParts(getTodayIST());
+  const year = parseInt(req.query.year || curY, 10);
+  const month = parseInt(req.query.month || curM, 10);
 
   const start = `${year}-${String(month).padStart(2, '0')}-01`;
-  const end = `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
+  const daysInM = getDaysInMonth(year, month);
+  const end = `${year}-${String(month).padStart(2, '0')}-${String(daysInM).padStart(2, '0')}`;
 
   const availableCash = getAvailableCash();
 
   const monthlyTxs = db.prepare("SELECT * FROM transactions WHERE date >= ? AND date <= ?").all(start, end);
-  let rentCollected = 0, arrearsCollected = 0, securityDeposits = 0, totalIncome = 0, totalExpenses = 0;
+  let rentCollected = 0, arrearsCollected = 0, securityDeposits = 0, totalIncome = 0, totalExpenses = 0, totalWaivers = 0;
 
   for (const tx of monthlyTxs) {
     if (tx.transaction_type === 'income') {
@@ -402,8 +479,10 @@ app.get('/api/dashboard', (req, res) => {
       if (tx.category === 'Monthly Rent') rentCollected += tx.amount;
       else if (tx.category === 'Arrears Recovery') arrearsCollected += tx.amount;
       else if (tx.category === 'Security Deposit') securityDeposits += tx.amount;
-    } else {
+    } else if (tx.transaction_type === 'expense') {
       totalExpenses += tx.amount;
+    } else if (tx.transaction_type === 'waiver') {
+      totalWaivers += tx.amount;
     }
   }
 
@@ -438,6 +517,7 @@ app.get('/api/dashboard', (req, res) => {
     arrears_collected: arrearsCollected,
     security_deposits_received: securityDeposits,
     total_expenses: totalExpenses,
+    total_waivers: totalWaivers,
     net_cash_flow: totalIncome - totalExpenses,
     total_outstanding_arrears: totalArrears,
     total_refundable_deposits: Math.max(0, totalDeposits),
@@ -672,19 +752,35 @@ app.patch('/api/tenants/:id', (req, res) => {
     }
   }
 
-  // If lease_start or monthly_rent was updated, re-calculate start month charge if unpaid, and generate any new charges
+  // If lease_start or monthly_rent was updated, keep unpaid charges and dues in sync
   if (lease_start !== undefined || monthly_rent !== undefined) {
     const tenant = db.prepare("SELECT * FROM tenants WHERE id = ?").get(tenantId);
     if (tenant && tenant.lease_start) {
-      const [sY, sM, sD] = tenant.lease_start.split('-').map(Number);
-      const daysInMonth = new Date(sY, sM, 0).getDate();
-      let newAmount = tenant.monthly_rent;
+      const [sY, sM, sD] = parseDateParts(tenant.lease_start);
+      const daysInMonth = getDaysInMonth(sY, sM);
+
+      // 1. If lease_start moved forward, remove any charges that precede the new lease start if unpaid
+      const startPeriodNum = sY * 12 + sM;
+      db.prepare(`
+        DELETE FROM rent_charges
+        WHERE tenant_id = ? AND (period_year * 12 + period_month) < ? AND amount_paid = 0
+      `).run(tenantId, startPeriodNum);
+
+      // 2. Update subsequent unpaid charges with the new monthly_rent
+      db.prepare(`
+        UPDATE rent_charges
+        SET amount_due = ?, updated_at = datetime('now')
+        WHERE tenant_id = ? AND (period_year * 12 + period_month) > ? AND amount_paid = 0
+      `).run(tenant.monthly_rent, tenantId, startPeriodNum);
+
+      // 3. Update the start month charge if unpaid
+      let newStartAmount = tenant.monthly_rent;
       let newDueDate = `${sY}-${String(sM).padStart(2, '0')}-${String(Math.min(tenant.rent_due_day || 1, daysInMonth)).padStart(2, '0')}`;
       let newNotes = null;
 
       if (sD > 1) {
         const activeDays = daysInMonth - sD + 1;
-        newAmount = Math.round((tenant.monthly_rent * activeDays) / daysInMonth);
+        newStartAmount = Math.round((tenant.monthly_rent * activeDays) / daysInMonth);
         newDueDate = tenant.lease_start;
         const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         newNotes = `Prorated rent: ${sD} ${monthNames[sM - 1]} – ${daysInMonth} ${monthNames[sM - 1]} (${activeDays} days)`;
@@ -694,9 +790,12 @@ app.patch('/api/tenants/:id', (req, res) => {
         UPDATE rent_charges
         SET amount_due = ?, due_date = ?, notes = ?, updated_at = datetime('now')
         WHERE tenant_id = ? AND period_year = ? AND period_month = ? AND amount_paid = 0
-      `).run(newAmount, newDueDate, newNotes, tenantId, sY, sM);
+      `).run(newStartAmount, newDueDate, newNotes, tenantId, sY, sM);
+
+      generateMonthlyCharges();
+      reallocateTenantPayments(tenantId);
+      updateChargeStatuses();
     }
-    generateMonthlyCharges();
   }
 
   res.json({ success: true });
@@ -784,7 +883,10 @@ app.patch('/api/charges/:id', (req, res) => {
 // Waive / Concession (Recorded in rent charges and financial ledger)
 app.patch('/api/charges/:id/waive', (req, res) => {
   const { waived_amount, waived_reason, date } = req.body;
-  if (!waived_amount) return res.status(400).json({ error: "Amount required" });
+  const waiverPaise = Number(waived_amount);
+  if (!waiverPaise || isNaN(waiverPaise) || waiverPaise <= 0) {
+    return res.status(400).json({ error: "Positive waiver amount required" });
+  }
 
   const charge = db.prepare(`
     SELECT rc.*, t.name as tenant_name, p.name as property_name
@@ -798,18 +900,23 @@ app.patch('/api/charges/:id/waive', (req, res) => {
     return res.status(404).json({ error: "Rent charge not found" });
   }
 
+  const remaining = Math.max(0, charge.amount_due - charge.amount_paid - charge.waived_amount);
+  if (waiverPaise > remaining) {
+    return res.status(400).json({ error: `Cannot waive more than remaining balance (${remaining} paise)` });
+  }
+
   db.prepare(`
     UPDATE rent_charges
     SET waived_amount = waived_amount + ?,
         waived_reason = ?,
         updated_at = datetime('now')
     WHERE id = ?
-  `).run(waived_amount, waived_reason || 'Landlord concession', req.params.id);
+  `).run(waiverPaise, waived_reason || 'Landlord concession', req.params.id);
 
   updateChargeStatuses();
 
   // Insert waiver into Financial Ledger so everything is in the ledger!
-  const today = date || new Date().toISOString().split('T')[0];
+  const today = date || getTodayIST();
   const periodStr = `${charge.period_month}/${charge.period_year}`;
   const desc = waived_reason
     ? `Rent waiver: ${waived_reason} (${charge.tenant_name} - ${periodStr})`
@@ -823,7 +930,7 @@ app.patch('/api/charges/:id/waive', (req, res) => {
     today,
     charge.property_id,
     charge.tenant_id,
-    waived_amount,
+    waiverPaise,
     desc,
     `Charge #${charge.id}`
   );
@@ -841,6 +948,11 @@ function deleteChargesInternal(rawIds) {
 
   const deleteTx = db.transaction(() => {
     const placeholders = ids.map(() => '?').join(',');
+
+    // Identify affected tenant IDs before deleting charges
+    const affectedTenantIds = db.prepare(`
+      SELECT DISTINCT tenant_id FROM rent_charges WHERE id IN (${placeholders})
+    `).all(...ids).map(r => r.tenant_id).filter(Boolean);
 
     // 1. Delete payment allocations tied to these charges
     db.prepare(`
@@ -862,7 +974,12 @@ function deleteChargesInternal(rawIds) {
       WHERE id IN (${placeholders})
     `).run(...ids);
 
-    // 3. Recalculate remaining charge statuses
+    // 3. Re-allocate remaining tenant payments FIFO so cash rolls forward
+    for (const tId of affectedTenantIds) {
+      reallocateTenantPayments(tId);
+    }
+
+    // 4. Recalculate remaining charge statuses
     updateChargeStatuses();
 
     return result.changes;
@@ -955,32 +1072,7 @@ app.post('/api/transactions', (req, res) => {
 
   // If this is a rent or arrears receipt, auto-allocate to oldest unpaid charges
   if (transaction_type === 'income' && tenant_id && (category === 'Monthly Rent' || category === 'Arrears Recovery')) {
-    const unpaid = db.prepare("SELECT * FROM rent_charges WHERE tenant_id = ? AND status NOT IN ('paid', 'waived') ORDER BY due_date ASC").all(tenant_id);
-    let remaining = amount;
-
-    for (const chg of unpaid) {
-      if (remaining <= 0) break;
-      const needed = Math.max(0, chg.amount_due - chg.amount_paid - chg.waived_amount);
-      if (needed <= 0) continue;
-
-      const toAlloc = Math.min(remaining, needed);
-      db.prepare(`
-        INSERT INTO rent_payment_allocations (transaction_id, rent_charge_id, amount_allocated)
-        VALUES (?, ?, ?)
-        ON CONFLICT(transaction_id, rent_charge_id) DO UPDATE SET amount_allocated = amount_allocated + excluded.amount_allocated
-      `).run(txId, chg.id, toAlloc);
-
-      db.prepare(`
-        UPDATE rent_charges
-        SET amount_paid = (SELECT COALESCE(SUM(amount_allocated), 0) FROM rent_payment_allocations WHERE rent_charge_id = ?),
-            updated_at = datetime('now')
-        WHERE id = ?
-      `).run(chg.id, chg.id);
-
-      remaining -= toAlloc;
-    }
-
-    updateChargeStatuses();
+    reallocateTenantPayments(tenant_id);
   }
 
   res.json({ id: txId });
@@ -1041,53 +1133,10 @@ app.patch('/api/transactions/:id', (req, res) => {
   const tenantChanged = (tenant_id !== undefined && (tenant_id ? Number(tenant_id) : null) !== existingTx.tenant_id);
 
   if (existingTx.transaction_type === 'income' && (rentCatChanged || amountChanged || tenantChanged)) {
-    // 1. Identify previous allocations and revert them
-    const affectedCharges = db.prepare(`
-      SELECT DISTINCT rent_charge_id 
-      FROM rent_payment_allocations 
-      WHERE transaction_id = ?
-    `).all(txId).map(r => r.rent_charge_id);
-
-    db.prepare("DELETE FROM rent_payment_allocations WHERE transaction_id = ?").run(txId);
-
-    for (const chgId of affectedCharges) {
-      db.prepare(`
-        UPDATE rent_charges
-        SET amount_paid = (SELECT COALESCE(SUM(amount_allocated), 0) FROM rent_payment_allocations WHERE rent_charge_id = ?),
-            updated_at = datetime('now')
-        WHERE id = ?
-      `).run(chgId, chgId);
+    if (existingTx.tenant_id) reallocateTenantPayments(existingTx.tenant_id);
+    if (updatedTx.tenant_id && updatedTx.tenant_id !== existingTx.tenant_id) {
+      reallocateTenantPayments(updatedTx.tenant_id);
     }
-
-    // 2. Re-allocate if new category is rent or arrears recovery
-    if (updatedTx.tenant_id && (updatedTx.category === 'Monthly Rent' || updatedTx.category === 'Arrears Recovery')) {
-      const unpaid = db.prepare("SELECT * FROM rent_charges WHERE tenant_id = ? AND status NOT IN ('paid', 'waived') ORDER BY due_date ASC").all(updatedTx.tenant_id);
-      let remaining = updatedTx.amount;
-
-      for (const chg of unpaid) {
-        if (remaining <= 0) break;
-        const needed = Math.max(0, chg.amount_due - chg.amount_paid - chg.waived_amount);
-        if (needed <= 0) continue;
-
-        const toAlloc = Math.min(remaining, needed);
-        db.prepare(`
-          INSERT INTO rent_payment_allocations (transaction_id, rent_charge_id, amount_allocated)
-          VALUES (?, ?, ?)
-          ON CONFLICT(transaction_id, rent_charge_id) DO UPDATE SET amount_allocated = amount_allocated + excluded.amount_allocated
-        `).run(txId, chg.id, toAlloc);
-
-        db.prepare(`
-          UPDATE rent_charges
-          SET amount_paid = (SELECT COALESCE(SUM(amount_allocated), 0) FROM rent_payment_allocations WHERE rent_charge_id = ?),
-              updated_at = datetime('now')
-          WHERE id = ?
-        `).run(chg.id, chg.id);
-
-        remaining -= toAlloc;
-      }
-    }
-
-    updateChargeStatuses();
   }
 
   // If this was a security deposit and amount/property changed, keep security_deposits in sync
@@ -1134,6 +1183,11 @@ function deleteTransactionsInternal(rawIds) {
   const deleteTx = db.transaction(() => {
     const placeholders = ids.map(() => '?').join(',');
 
+    // Identify affected tenants before deletion
+    const affectedTenantIds = db.prepare(`
+      SELECT DISTINCT tenant_id FROM transactions WHERE id IN (${placeholders}) AND tenant_id IS NOT NULL
+    `).all(...ids).map(r => r.tenant_id);
+
     // 0. Identify waiver transactions being deleted and revert their waived_amount on rent_charges
     const waiverTxs = db.prepare(`
       SELECT id, reference, amount 
@@ -1159,20 +1213,13 @@ function deleteTransactionsInternal(rawIds) {
       }
     }
 
-    // 1. Identify which rent charges are affected by allocations from these transactions
-    const affectedCharges = db.prepare(`
-      SELECT DISTINCT rent_charge_id 
-      FROM rent_payment_allocations 
-      WHERE transaction_id IN (${placeholders})
-    `).all(...ids).map(r => r.rent_charge_id);
-
-    // 2. Delete the payment allocations
+    // 1. Delete the payment allocations
     db.prepare(`
       DELETE FROM rent_payment_allocations 
       WHERE transaction_id IN (${placeholders})
     `).run(...ids);
 
-    // 3. For any income transaction that was a Security Deposit, also remove corresponding security_deposits entry
+    // 2. For any income transaction that was a Security Deposit, also remove corresponding security_deposits entry
     const secDepTxs = db.prepare(`
       SELECT tenant_id, amount 
       FROM transactions 
@@ -1192,31 +1239,18 @@ function deleteTransactionsInternal(rawIds) {
       }
     }
 
-    // 4. Delete the transactions themselves
+    // 3. Delete the transactions themselves
     const result = db.prepare(`
       DELETE FROM transactions 
       WHERE id IN (${placeholders})
     `).run(...ids);
 
-    // 5. Update amount_paid for all affected rent charges
-    if (affectedCharges.length > 0) {
-      const updateCharge = db.prepare(`
-        UPDATE rent_charges
-        SET amount_paid = (
-          SELECT COALESCE(SUM(amount_allocated), 0) 
-          FROM rent_payment_allocations 
-          WHERE rent_charge_id = ?
-        ),
-        updated_at = datetime('now')
-        WHERE id = ?
-      `);
-
-      for (const chgId of affectedCharges) {
-        updateCharge.run(chgId, chgId);
-      }
+    // 4. Re-allocate remaining tenant payments FIFO
+    for (const tId of affectedTenantIds) {
+      reallocateTenantPayments(tId);
     }
 
-    // 6. Recalculate status of all rent charges
+    // 5. Recalculate status of all rent charges
     updateChargeStatuses();
 
     return result.changes;

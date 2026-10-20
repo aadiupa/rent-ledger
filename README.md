@@ -75,16 +75,17 @@ On first launch, RentLedger seeds the following synthetic test baseline:
 
 | Tenant | Monthly Rent | Security Deposit | Opening Arrears | Notes |
 |---|---:|---:|---:|---|
-| **Tenant 1** | ₹17,500 | ₹1,00,000 | ₹0 | Deposit received 15 Oct 2026 |
-| **Tenant 2** | ₹23,000 | ₹80,000 | ₹0 | Deposit received 18 Oct 2026 |
-| **Tenant 3** | ₹45,000 | ₹0 | ₹0 | ₹44,000 partial rent paid Oct 2026 |
-| **Tenant 4** | ₹1,30,000 | ₹0 | ₹4,90,000 | ₹2,00,000 arrears paid Oct 2026 |
+| **Tenant 1** | ₹17,500 | ₹1,00,000 | ₹0 | Deposit received 01 Aug 2026 • Sept rent paid |
+| **Tenant 2** | ₹23,000 | ₹80,000 | ₹0 | Deposit received 01 Jul 2026 • Oct rent paid |
+| **Tenant 3** | ₹45,000 | ₹1,50,000 | ₹0 | Move-in 01 Sep 2026 |
+| **Tenant 4** | ₹1,30,000 | ₹3,00,000 | ₹4,90,000 | ₹2,00,000 arrears recovery paid 10 Sep 2026 |
 
 ### Verification Benchmarks
-1. **Total Expected Monthly Rent**: ₹17,500 + ₹23,000 + ₹45,000 + ₹1,30,000 = **₹2,15,500**
-2. **Initial Recorded Receipts**: ₹1,00,000 (deposit) + ₹80,000 (deposit) + ₹44,000 (rent) + ₹2,00,000 (arrears) = **₹4,24,000**
-3. **Available Money**: ₹0 (opening cash) + ₹4,24,000 = **₹4,24,000**
-4. **Tenant 4 Remaining Arrears**: ₹4,90,000 − ₹2,00,000 = **₹2,90,000**
+1. **Total Expected Monthly Rent Roll**: ₹17,500 + ₹23,000 + ₹45,000 + ₹1,30,000 = **₹2,15,500**
+2. **Initial Recorded Inflows**: ₹1,00,000 (T1 deposit) + ₹80,000 (T2 deposit) + ₹17,500 (T1 rent) + ₹2,00,000 (T4 arrears) + ₹23,000 (T2 rent) = **₹4,20,500**
+3. **Initial Operating & Capex Outflows**: ₹8,500 (repairs) + ₹12,000 (tax) + ₹1,50,000 (civil) + ₹78,000 (materials) + ₹45,000 (architectural) = **₹2,93,500**
+4. **Net Available Cash**: ₹4,20,500 − ₹2,93,500 = **₹1,27,000**
+5. **Tenant 4 Remaining Arrears**: Opening arrears (₹4,90,000) + 5 months charges (₹6,50,000) − paid arrears recovery (₹2,00,000) = **₹9,40,000**
 
 ---
 

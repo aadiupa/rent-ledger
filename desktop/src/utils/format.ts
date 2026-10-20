@@ -23,8 +23,16 @@ export function formatIndianNumber(num: number): string {
  * @param paise integer amount in paise (100 paise = 1 rupee)
  */
 export function formatINR(paise: number = 0): string {
-  const rupees = Math.round(paise / 100);
-  return `₹${formatIndianNumber(rupees)}`;
+  const isNegative = paise < 0;
+  const absPaise = Math.abs(Math.round(paise));
+  const wholeRupees = Math.floor(absPaise / 100);
+  const remainderPaise = absPaise % 100;
+  const formattedWhole = formatIndianNumber(wholeRupees);
+  const prefix = isNegative ? '-₹' : '₹';
+  if (remainderPaise > 0) {
+    return `${prefix}${formattedWhole}.${String(remainderPaise).padStart(2, '0')}`;
+  }
+  return `${prefix}${formattedWhole}`;
 }
 
 export const formatCurrency = formatINR;
@@ -33,8 +41,16 @@ export const formatCurrency = formatINR;
  * Format paise without symbol
  */
 export function formatINRWithoutSymbol(paise: number = 0): string {
-  const rupees = Math.round(paise / 100);
-  return formatIndianNumber(rupees);
+  const isNegative = paise < 0;
+  const absPaise = Math.abs(Math.round(paise));
+  const wholeRupees = Math.floor(absPaise / 100);
+  const remainderPaise = absPaise % 100;
+  const formattedWhole = formatIndianNumber(wholeRupees);
+  const prefix = isNegative ? '-' : '';
+  if (remainderPaise > 0) {
+    return `${prefix}${formattedWhole}.${String(remainderPaise).padStart(2, '0')}`;
+  }
+  return `${prefix}${formattedWhole}`;
 }
 
 /**
