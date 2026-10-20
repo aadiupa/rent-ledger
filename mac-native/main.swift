@@ -47,7 +47,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         // Find node executable
         let fileManager = FileManager.default
         let possibleDirs = [
-            "/Users/adityaupadhyay/.gemini/antigravity/scratch/RentLedger",
+            "/Users/adityaupadhyay/myplayarea/rent-ledger",
             Bundle.main.resourcePath ?? ""
         ]
 

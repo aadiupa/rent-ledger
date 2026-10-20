@@ -18,9 +18,9 @@ RentLedger ("the Application") is built as a private, offline personal and comme
 ## 2. Information Handled by the Application
 
 The Application processes the following categories of data solely on your device:
-1. **Property & Unit Information**: Property names, addresses, and landlord notes.
-2. **Tenant Records**: Names, contact phone numbers/emails, lease periods, monthly rent figures, and opening balances.
-3. **Financial Records**: Income transactions, expense vouchers, rent payment allocations, and deposit histories.
+1. **Property & Unit Information**: Property names, addresses, construction/active status, and landlord notes.
+2. **Tenant Records**: Names, contact phone numbers/emails, lease periods, monthly rent figures, liability adjustments, and opening balances.
+3. **Financial Records**: Income transactions, operational expenses, property development/construction capital expenditures (materials, civil labor, contractor payouts), rent payment allocations, and deposit histories.
 4. **Device Features**: If enabled, Apple's LocalAuthentication framework (Face ID, Touch ID, or Passcode) is used strictly on-device to lock and unlock the Application. The Application never reads, collects, or stores biometric images or fingerprints.
 
 ---
@@ -39,4 +39,4 @@ Since no data is stored on remote servers, uninstalling the Application or choos
 
 ## 5. Contact Information
 
-If you have any questions or feedback regarding this privacy policy or the Application's local data storage architecture, please contact the developer via the official repository at [https://github.com/aadiupa/rentledger](https://github.com/aadiupa/rentledger).
+If you have any questions or feedback regarding this privacy policy or the Application's local data storage architecture, please contact the developer via the official repository at [https://github.com/aadiupa/rent-ledger](https://github.com/aadiupa/rent-ledger).

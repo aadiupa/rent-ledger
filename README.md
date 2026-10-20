@@ -147,14 +147,21 @@ npx expo run:ios
 
 ## 📱 Building for Production & App Store Submission
 
-### Option A: EAS Build (Cloud / Automated)
+Comprehensive documentation for Apple App Store Connect and iOS distribution is available in dedicated guides:
+- 📖 **[iOS Build & Submission Guide](IOS_BUILD_GUIDE.md)**: Step-by-step local Xcode archiving, automated EAS cloud builds, provisioning profiles, and App Store submission.
+- 📝 **[App Store Connect Metadata](APP_STORE_LISTING.md)**: Ready-to-copy App Store listing, keywords, promotional text, category selections, and review notes.
+- 🔒 **[Privacy Policy](PRIVACY_POLICY.md)**: App Store compliant offline & local-first data policy.
+
+### Quick Build Reference
+
+#### Option A: EAS Build (Cloud / Automated)
 1. Install EAS CLI: `npm install -g eas-cli`
 2. Log in with your Apple & Expo credentials: `eas login`
 3. Configure iOS project: `eas build:configure`
 4. Build release IPA: `eas build --platform ios --profile production`
 5. Submit to App Store Connect: `eas submit --platform ios`
 
-### Option B: Local Xcode Archive Build
+#### Option B: Local Xcode Archive Build
 1. Prebuild native iOS project:
    ```bash
    npx expo prebuild --platform ios

@@ -25,7 +25,7 @@ This guide walks you through compiling, signing, and submitting RentLedger to Ap
 ### Step 1: Prebuild iOS Native Workspace
 From the `RentLedger` root directory, generate the native iOS project:
 ```bash
-cd /Users/adityaupadhyay/.gemini/antigravity/scratch/RentLedger
+cd /Users/adityaupadhyay/myplayarea/rent-ledger
 npx expo prebuild --platform ios
 ```
 This generates the `./ios` directory containing the Xcode workspace `RentLedger.xcworkspace` configured with:
