@@ -4,7 +4,7 @@
   "author": "aadiupa",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aadiupa/rentledger.git"
+    "url": "https://github.com/aadiupa/rent-ledger.git"
   },
   "main": "expo-router/entry",
   "scripts": {

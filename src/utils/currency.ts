@@ -10,22 +10,22 @@
  * e.g. 215500 → "2,15,500"
  */
 function indianGrouping(n: number): string {
-  // Handle fractional part
-  const fixed = n % 1 !== 0 ? n.toFixed(2) : String(Math.round(n));
+  const isNegative = n < 0;
+  const fixed = n % 1 !== 0 ? Math.abs(n).toFixed(2) : String(Math.abs(Math.round(n)));
   const [intPart, decPart] = fixed.split('.');
-  // Indian grouping: last 3 digits, then groups of 2
-  const intStr = intPart.replace('-', '');
-  let result = '';
-  if (intStr.length <= 3) {
-    result = intStr;
+
+  let formattedInt = '';
+  if (intPart.length <= 3) {
+    formattedInt = intPart;
   } else {
-    const last3 = intStr.slice(-3);
-    const rest = intStr.slice(0, intStr.length - 3);
-    const groups = rest.match(/.{1,2}/g) ?? [];
-    result = groups.join(',') + ',' + last3;
+    const last3 = intPart.slice(-3);
+    const other = intPart.slice(0, -3);
+    const formattedOther = other.replace(/\B(?=(\d{2})+(?!\d))/g, ',');
+    formattedInt = formattedOther + ',' + last3;
   }
-  const sign = n < 0 ? '-' : '';
-  return sign + result + (decPart ? '.' + decPart : '');
+
+  const sign = isNegative ? '-' : '';
+  return sign + formattedInt + (decPart ? '.' + decPart : '');
 }
 
 /**
@@ -155,6 +155,13 @@ export function formatPeriod(year: number, month: number): string {
 export function parseISODate(isoDate: string): { year: number; month: number; day: number } {
   const [y, m, d] = isoDate.split('-').map(Number);
   return { year: y, month: m, day: d };
+}
+
+/**
+ * Return number of days in a given month.
+ */
+export function getDaysInMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
 }
 
 /**

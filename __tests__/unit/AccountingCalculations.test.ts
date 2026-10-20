@@ -12,13 +12,9 @@ import {
   formatCurrency,
   getMonthEnd,
   getTodayISO,
-} from '../src/utils/currency';
-
-import {
-  getTodayISO as getToday,
   getDaysInMonth,
   getCurrentYearMonth,
-} from '../src/services/AccountingService';
+} from '../../src/utils/currency';
 
 // ================================================================
 // Pure financial calculation helpers (no DB required)
