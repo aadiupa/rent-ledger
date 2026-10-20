@@ -7,10 +7,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     var nodeProcess: Process?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Start background Node server for RentLedger static web files
+        // Start background Node server for RentLedger Desktop
         startNodeServer()
 
-        let windowSize = NSSize(width: 1200, height: 820)
+        let windowSize = NSSize(width: 1280, height: 860)
         let rect = NSRect(origin: .zero, size: windowSize)
 
         window = NSWindow(
@@ -20,11 +20,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
             defer: false
         )
         window.center()
-        window.title = "RentLedger"
+        window.title = "RentLedger — Rental Accounting & Capex"
         window.isReleasedWhenClosed = false
 
         let config = WKWebViewConfiguration()
-        // Enable local storage, indexedDB, WebAssembly
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
 
         webView = WKWebView(frame: rect, configuration: config)
@@ -35,25 +34,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
-        // Give server 500ms to be fully ready, then load
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            if let url = URL(string: "http://127.0.0.1:4321/") {
+        // Give server time to be fully ready, then load desktop web app on 3002
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            if let url = URL(string: "http://127.0.0.1:3002/") {
                 self.webView.load(URLRequest(url: url))
             }
         }
     }
 
     func startNodeServer() {
-        // Find node executable
         let fileManager = FileManager.default
         let possibleDirs = [
-            "/Users/adityaupadhyay/myplayarea/rent-ledger",
+            "/Users/adityaupadhyay/myplayarea/rent-ledger/desktop",
+            (Bundle.main.resourcePath ?? "") + "/desktop",
             Bundle.main.resourcePath ?? ""
         ]
 
         var scriptPath = ""
         for dir in possibleDirs {
-            let test = (dir as NSString).appendingPathComponent("serve.js")
+            let test = (dir as NSString).appendingPathComponent("server.js")
             if fileManager.fileExists(atPath: test) {
                 scriptPath = test
                 break
@@ -62,7 +61,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
 
         guard !scriptPath.isEmpty else { return }
 
-        let nodePaths = ["/usr/local/bin/node", "/opt/homebrew/bin/node", "/Users/adityaupadhyay/.nvm/versions/node/v24.7.0/bin/node"]
+        let nodePaths = [
+            "/usr/local/bin/node",
+            "/opt/homebrew/bin/node",
+            "/Users/adityaupadhyay/.nvm/versions/node/v24.7.0/bin/node"
+        ]
         var nodeBin = "node"
         for p in nodePaths {
             if fileManager.fileExists(atPath: p) {

@@ -14,7 +14,7 @@ import {
   getTodayISO,
   getDaysInMonth,
   getCurrentYearMonth,
-} from '../../src/utils/currency';
+} from '../../desktop/src/utils/format';
 
 // ================================================================
 // Pure financial calculation helpers (no DB required)

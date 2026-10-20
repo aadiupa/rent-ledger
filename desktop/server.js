@@ -830,6 +830,16 @@ app.patch('/api/settings', (req, res) => {
   res.json({ success: true });
 });
 
+// Serve static desktop client assets
+const distPath = path.join(__dirname, 'dist');
+app.use(express.static(distPath));
+
+// Fallback to index.html for desktop client routing
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api')) return next();
+  res.sendFile(path.join(distPath, 'index.html'));
+});
+
 // Start server
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`⚡️ RentLedger Backend running at http://127.0.0.1:${PORT}`);

@@ -1,10 +1,10 @@
-# RentLedger — Rental Accounting & Ledger App
+# RentLedger for Mac — Rental Accounting & Financial Ledger
 
 [![GitHub Repository](https://img.shields.io/badge/GitHub-aadiupa%2Frent--ledger-blue?logo=github)](https://github.com/aadiupa/rent-ledger)
-[![Platform](https://img.shields.io/badge/Platform-iPhone%20%7C%20iOS%20%7C%20Desktop%20Web-black?logo=apple)](https://github.com/aadiupa/rent-ledger)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Apple%20Silicon%20%26%20Intel-black?logo=apple)](https://github.com/aadiupa/rent-ledger)
 [![License](https://img.shields.io/badge/License-MIT-green)](https://github.com/aadiupa/rent-ledger)
 
-A production-ready, iPhone-first rental income and expense management app for individual landlords and property managers in India.
+A production-ready, macOS-first rental income, expense, and property construction management application for landlords and property managers in India.
 
 Repository: [https://github.com/aadiupa/rent-ledger](https://github.com/aadiupa/rent-ledger)
 
@@ -12,10 +12,10 @@ Repository: [https://github.com/aadiupa/rent-ledger](https://github.com/aadiupa/
 
 ## 🌟 Key Features
 
-- **100% Offline & Private**: Zero cloud backend, no account/login needed. All data remains strictly inside a local SQLite database on your device. Never transmits your financial or tenant records over the internet.
-- **iPhone-First & Desktop Companion**:
-  - **iPhone Mobile App**: Native iOS experience built with React Native & Expo.
-  - **Desktop Web App**: High-productivity desktop application built with Vite, React, Tailwind CSS, and `better-sqlite3`, designed with the clean financial aesthetic of Maybe.
+- **100% Offline & Private**: Zero cloud backend, no account/login needed. All data remains strictly inside a local SQLite database (`better-sqlite3`) on your Mac. Never transmits your financial or tenant records over the internet.
+- **Native macOS App & Desktop Web**:
+  - **Native macOS Application**: Apple Silicon & Intel macOS app (`RentLedger.app`) built with Swift and native WebKit.
+  - **Desktop Web Experience**: High-productivity desktop web application built with Vite, React, Tailwind CSS, and Node/Express, styled with the clean financial aesthetic of Maybe.
 - **Cash Ledger Accounting**: Lifetime available money calculation (`opening cash + income receipts − cash expenses`) that carries forward across months without resetting.
 - **Rent Liabilities & Flexible Dues Management**:
   - Configure monthly recurring rent, custom due day (1st–31st), and opening arrears at the tenant level.
@@ -25,16 +25,18 @@ Repository: [https://github.com/aadiupa/rent-ledger](https://github.com/aadiupa/
   - Separate capital expenditure (Capex) from operational maintenance (Opex).
   - Track site building and construction costs when developing new properties (e.g. building a 5th property): civil labor, contractors, raw materials (cement, steel), architectural blueprints, and municipal sanctions.
   - Track routine repairs, property taxes, utilities, and society dues.
+- **Single & Bulk Removal with Reconciliation**:
+  - Remove transactions from the ledger or expense records individually or via multi-select checkboxes.
+  - Automatic payment allocation reversal, arrears recalculation, and cashflow rebalancing.
+- **Property & Portfolio Lifecycle Management**:
+  - Track active rental properties and units alongside properties under construction.
+  - Safe property deletion with confirmation modal.
 - **Arrears Management**:
   $$\text{Arrears} = \text{Opening Arrears} + \text{Charges Due} - \text{Allocations} - \text{Waivers}$$
   Future rent charges never appear as arrears. Security deposits never offset rent unless explicitly adjusted.
 - **Security Deposit Liability Register**: Separates refundable deposit liabilities from rental income while accurately recognizing initial cash inflows and refund outflows.
-- **Idempotent Rent Charge Generation**: Configurable per-tenant due days with database-level uniqueness constraints preventing duplicate charges across app opens.
-- **Full JSON & CSV Export / Import**:
-  - 1-click export of transactions, dues, and construction expenses for Excel / Google Sheets.
-  - Full JSON backup and migration with **Safe Merge** (`INSERT OR IGNORE`) and **Full Replace**.
-- **Biometric Security**: Optional Face ID / Touch ID / Device Passcode app lock on iPhone.
 - **Indian Financial Localization**: Indian Rupee (`₹`) with Lakh/Crore number grouping, integer-safe paise arithmetic, and IST (Asia/Kolkata) date processing.
+- **Full CSV Spreadsheet Export**: 1-click export of transactions, dues, and construction expenses for Excel / Numbers / Google Sheets.
 
 ---
 
@@ -42,37 +44,24 @@ Repository: [https://github.com/aadiupa/rent-ledger](https://github.com/aadiupa/
 
 ```
 rent-ledger/
-├── desktop/                          # Desktop Web Application (Vite + React + Tailwind + SQLite)
-│   ├── server.js                     # Local SQLite backend API (port 3002)
+├── desktop/                          # Desktop Application (Vite + React + Tailwind + SQLite)
+│   ├── server.js                     # Local SQLite backend API & static server (port 3002)
 │   ├── src/
-│   │   ├── components/               # Sidebar, Transaction Modal, Expense Modal, Edit Dues Modal
+│   │   ├── components/               # Modals, Sidebar, Action Banners
 │   │   ├── views/                    # Dashboard, Properties, Tenants, Dues, Expenses, Reports, Settings
-│   │   ├── utils/format.ts           # Indian currency formatting (₹ Lakhs & Crores)
+│   │   ├── utils/format.ts           # Indian currency & date formatting (₹ Lakhs & Crores)
 │   │   └── api.ts                    # Typed API client
 │   ├── index.html
 │   └── vite.config.ts
-├── app/                              # iPhone Expo Router file-based navigation
-│   ├── _layout.tsx                   # Root Stack & Database Provider wrapper
-│   ├── (tabs)/                       # Bottom Tab Navigation (Dashboard, Properties, Ledger, Reports, Settings)
-│   ├── property/                     # Property details, units & add/edit
-│   ├── tenant/                       # Tenant details, charge ledger, rent adjustments & payment history
-│   ├── transaction/                  # Income/Expense recording with rent auto-allocations
-│   ├── charges/                      # Rent charges list, status tabs, and waivers
-│   ├── deposits/                     # Security deposits liability register
-│   └── backup/                       # Full JSON backup, restore, and CSV sharing
-├── src/
-│   ├── db/
-│   │   ├── schema.ts                 # SQLite DDL tables, indexes, versioning
-│   │   ├── database.ts               # Connection, WAL mode, foreign keys, transactions
-│   │   └── seed.ts                   # Generic synthetic test seed data
-│   ├── models/types.ts               # TypeScript interfaces (Paise integers)
-│   ├── services/
-│   │   ├── AccountingService.ts      # Cash ledger, arrears, allocations, charge engine
-│   │   ├── PropertyService.ts        # Property & Tenant CRUD
-│   │   └── ExportService.ts          # CSV generation, JSON backup/restore
-│   ├── hooks/useDatabase.tsx         # Database context & auto charge generator hook
-│   └── utils/currency.ts             # formatCurrency (₹), paiseToRupees, Indian grouping
-├── assets/                           # App icons & splash screens
+├── mac-native/                       # Native macOS App wrapper (Swift + WKWebView)
+│   ├── main.swift                    # Swift entry point launching local server & native window
+│   ├── Info.plist                    # macOS App bundle configuration
+│   └── AppIcon.icns                  # macOS application icon
+├── scripts/
+│   └── build-mac.sh                  # One-click native macOS build & install script
+├── __tests__/                        # Financial calculation unit test suite
+├── jest.config.cjs                   # Jest test configuration
+├── LICENSE                           # MIT License
 └── package.json
 ```
 
@@ -97,84 +86,44 @@ On first launch, RentLedger seeds the following synthetic test baseline:
 
 ---
 
-## 🚀 How to Run Locally
+## 🚀 How to Run on macOS
 
-### Option 1: Desktop Web App (Fastest)
+### Option 1: Native macOS Application (`RentLedger.app`)
+
+Compile and install the native macOS application with a single command:
 
 ```bash
-# 1. Navigate to the desktop directory
-cd desktop
+# 1. Build and install to ~/Applications/RentLedger.app
+npm run build:mac
 
-# 2. Install dependencies (if first time)
-npm install
+# 2. Launch RentLedger
+npm run mac
+# or open ~/Applications/RentLedger.app
+```
 
-# 3. Start both backend server and Vite frontend
-node server.js & npm run dev
+---
+
+### Option 2: Desktop Web App (Development Mode)
+
+```bash
+# 1. Install dependencies (if first time)
+cd desktop && npm install && cd ..
+
+# 2. Start Vite frontend + SQLite backend
+npm run dev
 ```
 
 Open your browser at **[http://localhost:5173](http://localhost:5173)**.
 
 ---
 
-### Option 2: iPhone Mobile App (React Native / Expo)
+## 🧪 Running Unit Tests
 
-#### Prerequisites
-- Node.js 18+ (tested with Node v24)
-- macOS with Xcode 15+ (for iOS Simulator or physical iPhone builds)
-- CocoaPods installed (`sudo gem install cocoapods` or via Homebrew)
+Run the complete 17-scenario financial calculation test suite:
 
-#### 1. Install Dependencies
 ```bash
-npm install
+npm test
 ```
-
-#### 2. Start Expo Metro Bundler
-```bash
-npx expo start
-```
-
-#### 3. Run on iOS Simulator
-Press `i` in the Expo terminal window, or run directly:
-```bash
-npx expo run:ios
-```
-
-#### 4. Run on Physical iPhone via Expo Go
-1. Install **Expo Go** from the Apple App Store.
-2. Scan the terminal QR code using your iPhone Camera app.
-
----
-
-## 📱 Building for Production & App Store Submission
-
-Comprehensive documentation for Apple App Store Connect and iOS distribution is available in dedicated guides:
-- 📖 **[iOS Build & Submission Guide](IOS_BUILD_GUIDE.md)**: Step-by-step local Xcode archiving, automated EAS cloud builds, provisioning profiles, and App Store submission.
-- 📝 **[App Store Connect Metadata](APP_STORE_LISTING.md)**: Ready-to-copy App Store listing, keywords, promotional text, category selections, and review notes.
-- 🔒 **[Privacy Policy](PRIVACY_POLICY.md)**: App Store compliant offline & local-first data policy.
-
-### Quick Build Reference
-
-#### Option A: EAS Build (Cloud / Automated)
-1. Install EAS CLI: `npm install -g eas-cli`
-2. Log in with your Apple & Expo credentials: `eas login`
-3. Configure iOS project: `eas build:configure`
-4. Build release IPA: `eas build --platform ios --profile production`
-5. Submit to App Store Connect: `eas submit --platform ios`
-
-#### Option B: Local Xcode Archive Build
-1. Prebuild native iOS project:
-   ```bash
-   npx expo prebuild --platform ios
-   ```
-2. Open the Xcode workspace:
-   ```bash
-   open ios/RentLedger.xcworkspace
-   ```
-3. In Xcode:
-   - Select your Apple Developer Team under **Signing & Capabilities**.
-   - Select **Any iOS Device (arm64)** as target.
-   - Go to **Product → Archive**.
-   - Once archived in the Organizer, click **Distribute App → App Store Connect → Upload**.
 
 ---
 
