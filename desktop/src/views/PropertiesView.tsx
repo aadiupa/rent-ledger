@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Building2, Plus, MapPin, Users, Home, Search, Trash2, AlertTriangle, X } from 'lucide-react';
+import { Building2, Plus, MapPin, Users, Home, Search, Trash2, Edit2, Calendar, AlertTriangle, X } from 'lucide-react';
 import { Property } from '../types';
-import { formatINR } from '../utils/format';
+import { formatINR, formatDate } from '../utils/format';
 import { api } from '../api';
+import { EditPropertyModal } from '../components/EditPropertyModal';
 
 interface PropertiesViewProps {
   properties: Property[];
@@ -18,6 +19,7 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
   onRefresh,
 }) => {
   const [search, setSearch] = useState('');
+  const [editingProperty, setEditingProperty] = useState<Property | null>(null);
   const [propertyToDelete, setPropertyToDelete] = useState<Property | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -135,6 +137,13 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
                 </p>
               )}
 
+              {prop.rental_start_date && (
+                <div className="flex items-center gap-1.5 text-[11px] text-gray-600 bg-emerald-50/70 px-2.5 py-1 rounded-lg border border-emerald-200/60">
+                  <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>Rental Start: <strong className="text-gray-900 font-semibold">{formatDate(prop.rental_start_date)}</strong></span>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100 text-xs">
                 <div>
                   <span className="text-[10px] uppercase font-bold text-gray-400 block">Units / Tenants</span>
@@ -156,6 +165,13 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
               <span className="text-gray-400 text-[11px]">ID #{prop.id}</span>
               <div className="flex items-center gap-2">
                 <button
+                  onClick={() => setEditingProperty(prop)}
+                  className="p-1.5 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition"
+                  title={`Edit ${prop.name} and Rental Start Date`}
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                </button>
+                <button
                   onClick={() => setPropertyToDelete(prop)}
                   className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
                   title={`Remove ${prop.name}`}
@@ -173,6 +189,14 @@ export const PropertiesView: React.FC<PropertiesViewProps> = ({
           </div>
         ))}
       </div>
+
+      {/* Edit Property Modal */}
+      <EditPropertyModal
+        property={editingProperty}
+        isOpen={Boolean(editingProperty)}
+        onClose={() => setEditingProperty(null)}
+        onSuccess={onRefresh}
+      />
 
       {/* Delete Confirmation Modal */}
       {propertyToDelete && (

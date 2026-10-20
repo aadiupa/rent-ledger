@@ -15,6 +15,7 @@ export const AddPropertyModal: React.FC<AddPropertyModalProps> = ({
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
   const [status, setStatus] = useState<'active' | 'under_construction'>('active');
+  const [rentalStartDate, setRentalStartDate] = useState('');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +40,7 @@ export const AddPropertyModal: React.FC<AddPropertyModalProps> = ({
           name: name.trim(),
           address: address.trim(),
           status,
+          rental_start_date: rentalStartDate || null,
           notes: notes.trim() || null,
         }),
       });
@@ -132,6 +134,18 @@ export const AddPropertyModal: React.FC<AddPropertyModalProps> = ({
               placeholder="e.g. 100 Main Street, Suite 400, North Zone"
               className="w-full text-xs rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900"
               required
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">
+              Rental / Commissioning Start Date (Optional)
+            </label>
+            <input
+              type="date"
+              value={rentalStartDate}
+              onChange={(e) => setRentalStartDate(e.target.value)}
+              className="w-full text-xs rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900 font-medium"
             />
           </div>
 

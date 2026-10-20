@@ -4,6 +4,7 @@ export interface Property {
   address: string;
   notes?: string;
   status?: 'active' | 'under_construction';
+  rental_start_date?: string | null;
   unit_count?: number;
   tenant_count?: number;
   total_monthly_rent?: number;
@@ -60,7 +61,7 @@ export interface Transaction {
   tenant_name?: string | null;
   property_name?: string | null;
   property_status?: 'active' | 'under_construction' | null;
-  transaction_type: 'income' | 'expense';
+  transaction_type: 'income' | 'expense' | 'waiver';
   category: string;
   amount: number; // in paise
   description: string;

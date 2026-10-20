@@ -34,6 +34,7 @@ function initSchema() {
       address TEXT NOT NULL,
       notes TEXT,
       status TEXT DEFAULT 'active',
+      rental_start_date TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -136,6 +137,47 @@ function initSchema() {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  // Migration: ensure rental_start_date column exists in properties table
+  try {
+    const propCols = db.prepare("PRAGMA table_info(properties)").all().map(c => c.name);
+    if (!propCols.includes('rental_start_date')) {
+      db.prepare("ALTER TABLE properties ADD COLUMN rental_start_date TEXT").run();
+    }
+  } catch (e) {
+    // Column might already exist
+  }
+
+  // Ensure all waived rent charges exist in transactions (Financial Ledger)
+  try {
+    const waivedCharges = db.prepare(`
+      SELECT c.*, t.name as tenant_name 
+      FROM rent_charges c
+      LEFT JOIN tenants t ON c.tenant_id = t.id
+      WHERE c.waived_amount > 0
+    `).all();
+
+    for (const w of waivedCharges) {
+      const ref = `Charge #${w.id}`;
+      const existingTx = db.prepare("SELECT id FROM transactions WHERE reference = ? AND transaction_type = 'waiver'").get(ref);
+      if (!existingTx) {
+        db.prepare(`
+          INSERT INTO transactions (
+            date, property_id, tenant_id, transaction_type, category, amount, description, payment_method, reference
+          ) VALUES (?, ?, ?, 'waiver', 'Rent Waiver', ?, ?, 'Waived', ?)
+        `).run(
+          w.due_date,
+          w.property_id,
+          w.tenant_id,
+          w.waived_amount,
+          `Rent waiver: ${w.waived_reason || 'Landlord concession'} (${w.tenant_name || 'Tenant'})`,
+          ref
+        );
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
 
   // Default settings
   db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('opening_cash_balance', '0')").run();
@@ -387,10 +429,39 @@ app.get('/api/properties', (req, res) => {
 });
 
 app.post('/api/properties', (req, res) => {
-  const { name, address, notes, status } = req.body;
+  const { name, address, notes, status, rental_start_date } = req.body;
   if (!name || !address) return res.status(400).json({ error: "Name and address required" });
-  const result = db.prepare("INSERT INTO properties (name, address, notes, status) VALUES (?, ?, ?, ?)").run(name, address, notes || null, status || 'active');
+  const result = db.prepare("INSERT INTO properties (name, address, notes, status, rental_start_date) VALUES (?, ?, ?, ?, ?)").run(
+    name, address, notes || null, status || 'active', rental_start_date || null
+  );
   res.json({ id: result.lastInsertRowid });
+});
+
+// Update Property (including rental_start_date, name, address, notes, status)
+app.patch('/api/properties/:id', (req, res) => {
+  const propId = req.params.id;
+  const prop = db.prepare("SELECT * FROM properties WHERE id = ?").get(propId);
+  if (!prop) {
+    return res.status(404).json({ error: "Property not found" });
+  }
+
+  const { name, address, notes, status, rental_start_date } = req.body;
+  const updates = [];
+  const params = [];
+
+  if (name !== undefined) { updates.push("name = ?"); params.push(name.trim()); }
+  if (address !== undefined) { updates.push("address = ?"); params.push(address.trim()); }
+  if (notes !== undefined) { updates.push("notes = ?"); params.push(notes ? notes.trim() : null); }
+  if (status !== undefined) { updates.push("status = ?"); params.push(status); }
+  if (rental_start_date !== undefined) { updates.push("rental_start_date = ?"); params.push(rental_start_date || null); }
+
+  if (updates.length > 0) {
+    updates.push("updated_at = datetime('now')");
+    params.push(propId);
+    db.prepare(`UPDATE properties SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+  }
+
+  res.json({ success: true });
 });
 
 app.delete('/api/properties/:id', (req, res) => {
@@ -474,9 +545,9 @@ app.post('/api/tenants', (req, res) => {
   res.json({ id: tenantId });
 });
 
-// Update Tenant (recurring monthly rent, due day, moving property, security deposit, opening arrears)
+// Update Tenant (recurring monthly rent, due day, moving property, security deposit, opening arrears, lease start)
 app.patch('/api/tenants/:id', (req, res) => {
-  const { property_id, unit_id, monthly_rent, rent_due_day, security_deposit, opening_arrears, is_active, notes, contact_phone, contact_email } = req.body;
+  const { property_id, unit_id, monthly_rent, rent_due_day, lease_start, security_deposit, opening_arrears, is_active, notes, contact_phone, contact_email } = req.body;
   const updates = [];
   const params = [];
 
@@ -484,6 +555,7 @@ app.patch('/api/tenants/:id', (req, res) => {
   if (unit_id !== undefined) { updates.push("unit_id = ?"); params.push(unit_id); }
   if (monthly_rent !== undefined) { updates.push("monthly_rent = ?"); params.push(monthly_rent); }
   if (rent_due_day !== undefined) { updates.push("rent_due_day = ?"); params.push(rent_due_day); }
+  if (lease_start !== undefined) { updates.push("lease_start = ?"); params.push(lease_start); }
   if (security_deposit !== undefined) { updates.push("security_deposit = ?"); params.push(security_deposit); }
   if (opening_arrears !== undefined) { updates.push("opening_arrears = ?"); params.push(opening_arrears); }
   if (is_active !== undefined) { updates.push("is_active = ?"); params.push(is_active ? 1 : 0); }
@@ -649,10 +721,22 @@ app.patch('/api/charges/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// Waive / Concession
+// Waive / Concession (Recorded in rent charges and financial ledger)
 app.patch('/api/charges/:id/waive', (req, res) => {
-  const { waived_amount, waived_reason } = req.body;
+  const { waived_amount, waived_reason, date } = req.body;
   if (!waived_amount) return res.status(400).json({ error: "Amount required" });
+
+  const charge = db.prepare(`
+    SELECT rc.*, t.name as tenant_name, p.name as property_name
+    FROM rent_charges rc
+    JOIN tenants t ON rc.tenant_id = t.id
+    JOIN properties p ON rc.property_id = p.id
+    WHERE rc.id = ?
+  `).get(req.params.id);
+
+  if (!charge) {
+    return res.status(404).json({ error: "Rent charge not found" });
+  }
 
   db.prepare(`
     UPDATE rent_charges
@@ -663,7 +747,28 @@ app.patch('/api/charges/:id/waive', (req, res) => {
   `).run(waived_amount, waived_reason || 'Landlord concession', req.params.id);
 
   updateChargeStatuses();
-  res.json({ success: true });
+
+  // Insert waiver into Financial Ledger so everything is in the ledger!
+  const today = date || new Date().toISOString().split('T')[0];
+  const periodStr = `${charge.period_month}/${charge.period_year}`;
+  const desc = waived_reason
+    ? `Rent waiver: ${waived_reason} (${charge.tenant_name} - ${periodStr})`
+    : `Rent concession granted for ${charge.tenant_name} (${periodStr})`;
+
+  const txRes = db.prepare(`
+    INSERT INTO transactions (
+      date, property_id, tenant_id, transaction_type, category, amount, description, payment_method, reference
+    ) VALUES (?, ?, ?, 'waiver', 'Rent Waiver', ?, ?, 'Waived', ?)
+  `).run(
+    today,
+    charge.property_id,
+    charge.tenant_id,
+    waived_amount,
+    desc,
+    `Charge #${charge.id}`
+  );
+
+  res.json({ success: true, transaction_id: txRes.lastInsertRowid });
 });
 
 // Charge delete helper for single and bulk deletion

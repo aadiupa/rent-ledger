@@ -37,9 +37,29 @@ export const api = {
 
   // Properties
   getProperties: () => request<Property[]>('/properties'),
-  createProperty: (data: { name: string; address: string; notes?: string; status?: 'active' | 'under_construction' }) =>
+  createProperty: (data: {
+    name: string;
+    address: string;
+    notes?: string;
+    status?: 'active' | 'under_construction';
+    rental_start_date?: string | null;
+  }) =>
     request<{ id: number }>('/properties', {
       method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateProperty: (
+    id: number,
+    data: {
+      name?: string;
+      address?: string;
+      notes?: string | null;
+      status?: 'active' | 'under_construction';
+      rental_start_date?: string | null;
+    }
+  ) =>
+    request<{ success: boolean }>(`/properties/${id}`, {
+      method: 'PATCH',
       body: JSON.stringify(data),
     }),
   deleteProperty: (id: number) =>
@@ -76,6 +96,7 @@ export const api = {
       unit_id?: number | null;
       monthly_rent?: number;
       rent_due_day?: number;
+      lease_start?: string;
       security_deposit?: number;
       opening_arrears?: number;
       is_active?: boolean;

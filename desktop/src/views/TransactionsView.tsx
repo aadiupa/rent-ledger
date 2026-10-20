@@ -8,6 +8,7 @@ import {
   ArrowUpRight,
   Trash2,
   Edit2,
+  Tag,
   AlertTriangle,
   X,
 } from 'lucide-react';
@@ -32,7 +33,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   tenants = [],
 }) => {
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense'>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense' | 'waiver'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
 
   // Edit state
@@ -268,6 +269,17 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           >
             Expenses Only
           </button>
+          <button
+            onClick={() => setTypeFilter('waiver')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
+              typeFilter === 'waiver'
+                ? 'bg-white text-purple-700 shadow-xs'
+                : 'text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            <Tag className="w-3.5 h-3.5 text-purple-600" />
+            <span>Waivers & Concessions</span>
+          </button>
         </div>
 
         <div className="relative w-full sm:w-72">
@@ -357,12 +369,17 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
               ) : (
                 filtered.map((tx) => {
                   const isIncome = tx.transaction_type === 'income';
+                  const isWaiver = tx.transaction_type === 'waiver';
                   const isSelected = selectedIds.includes(tx.id);
                   return (
                     <tr
                       key={tx.id}
                       className={`transition ${
-                        isSelected ? 'bg-indigo-50/40' : 'hover:bg-gray-50/60'
+                        isSelected
+                          ? 'bg-indigo-50/40'
+                          : isWaiver
+                          ? 'bg-purple-50/30 hover:bg-purple-50/50'
+                          : 'hover:bg-gray-50/60'
                       }`}
                     >
                       <td className="py-3.5 px-3 w-10 text-center">
@@ -379,14 +396,27 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                       </td>
 
                       <td className="py-3.5 px-4">
-                        <div className="font-semibold text-gray-900">{tx.description}</div>
+                        <div className="font-semibold text-gray-900 flex items-center gap-1.5">
+                          <span>{tx.description}</span>
+                          {isWaiver && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-purple-100 text-purple-700 uppercase tracking-wider">
+                              Waiver
+                            </span>
+                          )}
+                        </div>
                         {tx.property_name && (
                           <div className="text-[11px] text-gray-400">{tx.property_name}</div>
                         )}
                       </td>
 
                       <td className="py-3.5 px-4 whitespace-nowrap">
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                        <span
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                            isWaiver
+                              ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                              : 'bg-gray-100 text-gray-700'
+                          }`}
+                        >
                           {tx.category}
                         </span>
                       </td>
@@ -401,8 +431,12 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                         title="Click to edit payment method or transaction details"
                       >
                         <div className="flex items-center gap-1.5">
-                          <span className="font-medium group-hover:text-blue-600 group-hover:underline">
-                            {tx.payment_method || 'Direct'}
+                          <span
+                            className={`font-medium ${
+                              isWaiver ? 'text-purple-700 font-semibold' : 'group-hover:text-blue-600 group-hover:underline'
+                            }`}
+                          >
+                            {tx.payment_method || (isWaiver ? 'Waived' : 'Direct')}
                           </span>
                           <Edit2 className="w-2.5 h-2.5 text-gray-400 opacity-0 group-hover:opacity-100 transition" />
                         </div>
@@ -414,12 +448,21 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <span
                           className={`font-mono font-bold text-sm ${
-                            isIncome ? 'text-emerald-600' : 'text-gray-900'
+                            isIncome
+                              ? 'text-emerald-600'
+                              : isWaiver
+                              ? 'text-purple-600'
+                              : 'text-gray-900'
                           }`}
                         >
-                          {isIncome ? '+' : '-'}
+                          {isIncome ? '+' : isWaiver ? '~' : '-'}
                           {formatINR(tx.amount)}
                         </span>
+                        {isWaiver && (
+                          <div className="text-[9px] uppercase font-bold text-purple-500 tracking-wider">
+                            Waived
+                          </div>
+                        )}
                       </td>
 
                       <td className="py-3.5 px-3 w-20 text-center">
@@ -433,8 +476,12 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                           </button>
                           <button
                             onClick={() => setItemToDelete(tx)}
-                            title="Remove from ledger"
-                            className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                            title={isWaiver ? 'Remove waiver from financial ledger only' : 'Remove from ledger'}
+                            className={`p-1.5 rounded-lg transition ${
+                              isWaiver
+                                ? 'text-purple-400 hover:text-purple-700 hover:bg-purple-50'
+                                : 'text-gray-400 hover:text-rose-600 hover:bg-rose-50'
+                            }`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -455,15 +502,25 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-gray-100 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="p-6 space-y-4">
               <div className="flex items-start gap-3">
-                <div className="p-2.5 bg-rose-50 rounded-xl text-rose-600 shrink-0">
+                <div
+                  className={`p-2.5 rounded-xl shrink-0 ${
+                    itemToDelete.transaction_type === 'waiver'
+                      ? 'bg-purple-50 text-purple-600'
+                      : 'bg-rose-50 text-rose-600'
+                  }`}
+                >
                   <AlertTriangle className="w-5 h-5" />
                 </div>
                 <div className="space-y-1">
                   <h3 className="text-base font-bold text-gray-900 tracking-tight">
-                    Remove from Ledger?
+                    {itemToDelete.transaction_type === 'waiver'
+                      ? 'Remove Waiver from Financial Ledger?'
+                      : 'Remove from Ledger?'}
                   </h3>
                   <p className="text-xs text-gray-500 leading-relaxed">
-                    Deleting this transaction will recompute available ledger cash and reverse any associated rent payment allocations.
+                    {itemToDelete.transaction_type === 'waiver'
+                      ? 'This will remove the waiver entry from the financial ledger only. The tenant’s rent charge waiver and arrears status will remain intact.'
+                      : 'Deleting this transaction will recompute available ledger cash and reverse any associated rent payment allocations.'}
                   </p>
                 </div>
               </div>
@@ -493,10 +550,14 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                   <span>Amount:</span>
                   <span
                     className={`font-mono font-bold ${
-                      itemToDelete.transaction_type === 'income' ? 'text-emerald-600' : 'text-gray-900'
+                      itemToDelete.transaction_type === 'income'
+                        ? 'text-emerald-600'
+                        : itemToDelete.transaction_type === 'waiver'
+                        ? 'text-purple-600'
+                        : 'text-gray-900'
                     }`}
                   >
-                    {itemToDelete.transaction_type === 'income' ? '+' : '-'}
+                    {itemToDelete.transaction_type === 'income' ? '+' : itemToDelete.transaction_type === 'waiver' ? '~' : '-'}
                     {formatINR(itemToDelete.amount)}
                   </span>
                 </div>
@@ -515,9 +576,17 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                   type="button"
                   disabled={isDeleting}
                   onClick={handleConfirmSingleDelete}
-                  className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs transition disabled:opacity-50"
+                  className={`px-4 py-2 text-xs font-semibold text-white rounded-lg shadow-xs transition disabled:opacity-50 ${
+                    itemToDelete.transaction_type === 'waiver'
+                      ? 'bg-purple-600 hover:bg-purple-700'
+                      : 'bg-rose-600 hover:bg-rose-700'
+                  }`}
                 >
-                  {isDeleting ? 'Removing...' : 'Yes, Remove Record'}
+                  {isDeleting
+                    ? 'Removing...'
+                    : itemToDelete.transaction_type === 'waiver'
+                    ? 'Yes, Remove from Ledger Only'
+                    : 'Yes, Remove Record'}
                 </button>
               </div>
             </div>

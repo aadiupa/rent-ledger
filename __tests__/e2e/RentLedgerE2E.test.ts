@@ -123,7 +123,7 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
   });
 
   test('E2E Scenario 2: Property Management & Construction Capex Project Setup', async () => {
-    // 1. Create an active residential property
+    // 1. Create an active residential property with rental start date
     const propRes = await request('/properties', {
       method: 'POST',
       body: JSON.stringify({
@@ -131,12 +131,22 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
         address: '12 MG Road, Bengaluru',
         notes: '6 Units Residential Complex',
         status: 'active',
+        rental_start_date: '2026-05-01',
       }),
     });
     expect(propRes.id).toBeDefined();
     createdPropertyId = propRes.id;
 
-    // 2. Create a property under development/construction (e.g. 5th Property)
+    // 2. Update property rental start date via PATCH /properties/:id
+    const patchPropRes = await request(`/properties/${createdPropertyId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        rental_start_date: '2026-06-01',
+      }),
+    });
+    expect(patchPropRes.success).toBe(true);
+
+    // 3. Create a property under development/construction (e.g. 5th Property)
     const constrRes = await request('/properties', {
       method: 'POST',
       body: JSON.stringify({
@@ -155,6 +165,7 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
 
     expect(horizon).toBeDefined();
     expect(horizon.status).toBe('active');
+    expect(horizon.rental_start_date).toBe('2026-06-01');
     expect(emerald).toBeDefined();
     expect(emerald.status).toBe('under_construction');
   });
@@ -299,7 +310,7 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     });
     expect(patchRes.success).toBe(true);
 
-    // 2. Grant authorized landlord concession/waiver
+    // 2. Grant authorized landlord concession/waiver (Must appear in Financial Ledger!)
     const waiverAmount = 500000; // ₹5,000
     const waiveRes = await request(`/charges/${unpaidCharge.id}/waive`, {
       method: 'PATCH',
@@ -309,12 +320,38 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
       }),
     });
     expect(waiveRes.success).toBe(true);
+    expect(waiveRes.transaction_id).toBeDefined();
 
     const updatedCharges = await request('/charges');
     const updated = updatedCharges.find((c: any) => c.id === unpaidCharge.id);
     expect(updated.amount_due).toBe(2800000);
     expect(updated.waived_amount).toBe(waiverAmount);
     expect(updated.waived_reason).toBe('Diwali landlord festive waiver');
+
+    // 3. Verify the waiver is recorded in Financial Ledger (everything should be there)
+    const allTxs = await request('/transactions');
+    const waiverTx = allTxs.find((t: any) => t.id === waiveRes.transaction_id);
+    expect(waiverTx).toBeDefined();
+    expect(waiverTx.transaction_type).toBe('waiver');
+    expect(waiverTx.category).toBe('Rent Waiver');
+    expect(waiverTx.amount).toBe(waiverAmount);
+    expect(waiverTx.payment_method).toBe('Waived');
+
+    // 4. Option to remove the waiver from financial ledger only
+    const delWaiverRes = await request(`/transactions/${waiveRes.transaction_id}`, {
+      method: 'DELETE',
+    });
+    expect(delWaiverRes.success).toBe(true);
+
+    // Verify it is removed from Financial Ledger
+    const txsAfterDel = await request('/transactions');
+    expect(txsAfterDel.find((t: any) => t.id === waiveRes.transaction_id)).toBeUndefined();
+
+    // Verify tenant charge waiver and remaining dues are preserved intact
+    const chargesAfterDel = await request('/charges');
+    const chargeAfterDel = chargesAfterDel.find((c: any) => c.id === unpaidCharge.id);
+    expect(chargeAfterDel.waived_amount).toBe(waiverAmount);
+    expect(chargeAfterDel.waived_reason).toBe('Diwali landlord festive waiver');
   });
 
   test('E2E Scenario 7: Security Deposit Modification & Inter-Property Tenant Relocation', async () => {

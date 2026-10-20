@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, CheckCircle, AlertCircle, Building2, Shield, DollarSign } from 'lucide-react';
+import { X, CheckCircle, AlertCircle, Building2, Shield, DollarSign, Calendar } from 'lucide-react';
 import { Tenant, Property } from '../types';
 import { formatINR, rupeesToPaise, paiseToRupees } from '../utils/format';
 
@@ -21,6 +21,7 @@ export const EditTenantModal: React.FC<EditTenantModalProps> = ({
   const [propertyId, setPropertyId] = useState<number>(1);
   const [securityDepositRupees, setSecurityDepositRupees] = useState<string>('');
   const [monthlyRentRupees, setMonthlyRentRupees] = useState<string>('');
+  const [leaseStart, setLeaseStart] = useState<string>('');
   const [rentDueDay, setRentDueDay] = useState<number>(1);
   const [openingArrearsRupees, setOpeningArrearsRupees] = useState<string>('');
   const [isActive, setIsActive] = useState<boolean>(true);
@@ -39,6 +40,7 @@ export const EditTenantModal: React.FC<EditTenantModalProps> = ({
           : (tenant.security_deposit || 0);
       setSecurityDepositRupees(String(paiseToRupees(depositVal)));
       setMonthlyRentRupees(String(paiseToRupees(tenant.monthly_rent)));
+      setLeaseStart(tenant.lease_start || '');
       setRentDueDay(tenant.rent_due_day || 1);
       setOpeningArrearsRupees(String(paiseToRupees(tenant.opening_arrears || 0)));
       setIsActive(tenant.is_active === 1);
@@ -73,6 +75,7 @@ export const EditTenantModal: React.FC<EditTenantModalProps> = ({
           property_id: Number(propertyId),
           security_deposit: depositPaise,
           monthly_rent: rentPaise,
+          lease_start: leaseStart || undefined,
           rent_due_day: Number(rentDueDay),
           opening_arrears: arrearsPaise,
           is_active: isActive,
@@ -225,8 +228,22 @@ export const EditTenantModal: React.FC<EditTenantModalProps> = ({
             </div>
           </div>
 
-          {/* Rent Due Day & Opening Arrears */}
+          {/* Rental Start Date & Rent Due Day */}
           <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="flex items-center gap-1 text-xs font-semibold text-gray-700 mb-1">
+                <Calendar className="w-3.5 h-3.5 text-gray-500" />
+                <span>Lease / Rental Start Date</span>
+              </label>
+              <input
+                type="date"
+                value={leaseStart}
+                onChange={(e) => setLeaseStart(e.target.value)}
+                className="w-full text-xs font-medium rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                required
+              />
+            </div>
+
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">
                 Rent Due Day (Day of Month)
@@ -243,20 +260,21 @@ export const EditTenantModal: React.FC<EditTenantModalProps> = ({
                 ))}
               </select>
             </div>
+          </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Opening Arrears Balance (₹)
-              </label>
-              <input
-                type="number"
-                value={openingArrearsRupees}
-                onChange={(e) => setOpeningArrearsRupees(e.target.value)}
-                placeholder="0"
-                className="w-full text-xs rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900"
-                min="0"
-              />
-            </div>
+          {/* Opening Arrears Balance */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">
+              Opening Arrears Balance (₹)
+            </label>
+            <input
+              type="number"
+              value={openingArrearsRupees}
+              onChange={(e) => setOpeningArrearsRupees(e.target.value)}
+              placeholder="0"
+              className="w-full text-xs rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900"
+              min="0"
+            />
           </div>
 
           {/* Contact Details */}
