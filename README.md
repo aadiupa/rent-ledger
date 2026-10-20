@@ -1,84 +1,79 @@
-# RentLedger — iPhone Rental Accounting & Ledger App
+# RentLedger — Rental Accounting & Ledger App
 
-[![GitHub Repository](https://img.shields.io/badge/GitHub-aadiupa%2Frentledger-blue?logo=github)](https://github.com/aadiupa/rentledger)
-[![Platform](https://img.shields.io/badge/Platform-iOS%20%7C%20iPhone-black?logo=apple)](https://github.com/aadiupa/rentledger)
-[![License](https://img.shields.io/badge/License-MIT-green)](https://github.com/aadiupa/rentledger)
+[![GitHub Repository](https://img.shields.io/badge/GitHub-aadiupa%2Frent--ledger-blue?logo=github)](https://github.com/aadiupa/rent-ledger)
+[![Platform](https://img.shields.io/badge/Platform-iPhone%20%7C%20iOS%20%7C%20Desktop%20Web-black?logo=apple)](https://github.com/aadiupa/rent-ledger)
+[![License](https://img.shields.io/badge/License-MIT-green)](https://github.com/aadiupa/rent-ledger)
 
 A production-ready, iPhone-first rental income and expense management app for individual landlords and property managers in India.
 
-Built with **React Native**, **Expo (SDK 51)**, **TypeScript**, and local **SQLite**.
-Repository: [https://github.com/aadiupa/rentledger](https://github.com/aadiupa/rentledger)
+Repository: [https://github.com/aadiupa/rent-ledger](https://github.com/aadiupa/rent-ledger)
 
 ---
 
 ## 🌟 Key Features
 
-- **100% Offline & Private**: Zero cloud backend, no account/login needed. All data remains inside a local SQLite database on device. Never transmits financial records over the internet.
+- **100% Offline & Private**: Zero cloud backend, no account/login needed. All data remains strictly inside a local SQLite database on your device. Never transmits your financial or tenant records over the internet.
+- **iPhone-First & Desktop Companion**:
+  - **iPhone Mobile App**: Native iOS experience built with React Native & Expo.
+  - **Desktop Web App**: High-productivity desktop application built with Vite, React, Tailwind CSS, and `better-sqlite3`, designed with the clean financial aesthetic of Maybe.
 - **Cash Ledger Accounting**: Lifetime available money calculation (`opening cash + income receipts − cash expenses`) that carries forward across months without resetting.
+- **Rent Liabilities & Flexible Dues Management**:
+  - Configure monthly recurring rent, custom due day (1st–31st), and opening arrears at the tenant level.
+  - Edit individual month's rent due amount or payment due date.
+  - Grant authorized landlord waivers / concessions with audit reasons.
+- **Expenses & Property Construction Capex**:
+  - Separate capital expenditure (Capex) from operational maintenance (Opex).
+  - Track site building and construction costs when developing new properties (e.g. building a 5th property): civil labor, contractors, raw materials (cement, steel), architectural blueprints, and municipal sanctions.
+  - Track routine repairs, property taxes, utilities, and society dues.
 - **Arrears Management**:
   $$\text{Arrears} = \text{Opening Arrears} + \text{Charges Due} - \text{Allocations} - \text{Waivers}$$
   Future rent charges never appear as arrears. Security deposits never offset rent unless explicitly adjusted.
 - **Security Deposit Liability Register**: Separates refundable deposit liabilities from rental income while accurately recognizing initial cash inflows and refund outflows.
 - **Idempotent Rent Charge Generation**: Configurable per-tenant due days with database-level uniqueness constraints preventing duplicate charges across app opens.
 - **Full JSON & CSV Export / Import**:
-  - Export CSVs for Excel / Google Sheets (transactions register & arrears summary).
+  - 1-click export of transactions, dues, and construction expenses for Excel / Google Sheets.
   - Full JSON backup and migration with **Safe Merge** (`INSERT OR IGNORE`) and **Full Replace**.
-- **Biometric Security**: Optional Face ID / Touch ID / Device Passcode app lock using `expo-local-authentication`.
-- **Indian Financial Localization**: Indian Rupee (`₹`) with Lakh/Crore number grouping, IST (Asia/Kolkata) date processing.
+- **Biometric Security**: Optional Face ID / Touch ID / Device Passcode app lock on iPhone.
+- **Indian Financial Localization**: Indian Rupee (`₹`) with Lakh/Crore number grouping, integer-safe paise arithmetic, and IST (Asia/Kolkata) date processing.
 
 ---
 
 ## 🏗️ Architecture & Project Structure
 
 ```
-RentLedger/
-├── app/                              # Expo Router file-based navigation
+rent-ledger/
+├── desktop/                          # Desktop Web Application (Vite + React + Tailwind + SQLite)
+│   ├── server.js                     # Local SQLite backend API (port 3002)
+│   ├── src/
+│   │   ├── components/               # Sidebar, Transaction Modal, Expense Modal, Edit Dues Modal
+│   │   ├── views/                    # Dashboard, Properties, Tenants, Dues, Expenses, Reports, Settings
+│   │   ├── utils/format.ts           # Indian currency formatting (₹ Lakhs & Crores)
+│   │   └── api.ts                    # Typed API client
+│   ├── index.html
+│   └── vite.config.ts
+├── app/                              # iPhone Expo Router file-based navigation
 │   ├── _layout.tsx                   # Root Stack & Database Provider wrapper
-│   ├── (tabs)/                       # Bottom Tab Navigation
-│   │   ├── _layout.tsx               # Tab bar configuration (5 tabs)
-│   │   ├── index.tsx                 # 1. Dashboard (Hero cash, month filter, stats, dues)
-│   │   ├── properties.tsx            # 2. Properties List
-│   │   ├── transactions.tsx          # 3. Transaction Ledger & Search
-│   │   ├── reports.tsx               # 4. Reports (Monthly P&L, tenant collection, arrears)
-│   │   └── settings.tsx              # 5. Settings, biometrics, opening cash balance
-│   ├── property/
-│   │   ├── [id].tsx                  # Property details & unit roster
-│   │   └── add.tsx                   # Add / Edit property
-│   ├── tenant/
-│   │   ├── [id].tsx                  # Tenant details, charge ledger & payment history
-│   │   └── add.tsx                   # Add / Edit tenant & opening balances
-│   ├── transaction/
-│   │   ├── [id].tsx                  # Transaction audit & delete
-│   │   └── add.tsx                   # Add Income/Expense with rent allocations
-│   ├── charges/
-│   │   └── index.tsx                 # Rent charges list, status tabs, and waivers
-│   ├── deposits/
-│   │   └── index.tsx                 # Security deposits liability register
-│   ├── categories/
-│   │   └── index.tsx                 # System and custom category manager
-│   └── backup/
-│       └── index.tsx                 # Full JSON backup, restore, and CSV sharing
+│   ├── (tabs)/                       # Bottom Tab Navigation (Dashboard, Properties, Ledger, Reports, Settings)
+│   ├── property/                     # Property details, units & add/edit
+│   ├── tenant/                       # Tenant details, charge ledger, rent adjustments & payment history
+│   ├── transaction/                  # Income/Expense recording with rent auto-allocations
+│   ├── charges/                      # Rent charges list, status tabs, and waivers
+│   ├── deposits/                     # Security deposits liability register
+│   └── backup/                       # Full JSON backup, restore, and CSV sharing
 ├── src/
 │   ├── db/
 │   │   ├── schema.ts                 # SQLite DDL tables, indexes, versioning
 │   │   ├── database.ts               # Connection, WAL mode, foreign keys, transactions
-│   │   └── seed.ts                   # Seed data (Generic synthetic test tenants)
-│   ├── models/
-│   │   └── types.ts                  # TypeScript interfaces (Paise integers)
+│   │   └── seed.ts                   # Generic synthetic test seed data
+│   ├── models/types.ts               # TypeScript interfaces (Paise integers)
 │   ├── services/
 │   │   ├── AccountingService.ts      # Cash ledger, arrears, allocations, charge engine
 │   │   ├── PropertyService.ts        # Property & Tenant CRUD
 │   │   └── ExportService.ts          # CSV generation, JSON backup/restore
-│   ├── hooks/
-│   │   └── useDatabase.tsx           # Database context & auto charge generator hook
-│   ├── utils/
-│   │   └── currency.ts               # formatCurrency (₹), paiseToRupees, IST dates
-│   └── constants/
-│       └── theme.ts                  # iOS design tokens (Colors, Typography, Spacing)
-├── assets/
-│   └── images/                       # App icon (1024x1024), splash screen, adaptive icon
-├── app.json                          # Expo configuration & iOS bundle metadata
-└── package.json                      # Project dependencies & scripts
+│   ├── hooks/useDatabase.tsx         # Database context & auto charge generator hook
+│   └── utils/currency.ts             # formatCurrency (₹), paiseToRupees, Indian grouping
+├── assets/                           # App icons & splash screens
+└── package.json
 ```
 
 ---
@@ -102,31 +97,49 @@ On first launch, RentLedger seeds the following synthetic test baseline:
 
 ---
 
-## 🚀 How to Run the App Locally
+## 🚀 How to Run Locally
 
-### Prerequisites
+### Option 1: Desktop Web App (Fastest)
+
+```bash
+# 1. Navigate to the desktop directory
+cd desktop
+
+# 2. Install dependencies (if first time)
+npm install
+
+# 3. Start both backend server and Vite frontend
+node server.js & npm run dev
+```
+
+Open your browser at **[http://localhost:5173](http://localhost:5173)**.
+
+---
+
+### Option 2: iPhone Mobile App (React Native / Expo)
+
+#### Prerequisites
 - Node.js 18+ (tested with Node v24)
 - macOS with Xcode 15+ (for iOS Simulator or physical iPhone builds)
 - CocoaPods installed (`sudo gem install cocoapods` or via Homebrew)
 
-### 1. Install Dependencies
+#### 1. Install Dependencies
 ```bash
-cd RentLedger
 npm install
 ```
 
-### 2. Start Expo Metro Bundler
+#### 2. Start Expo Metro Bundler
 ```bash
 npx expo start
 ```
 
-### 3. Run on iOS Simulator
+#### 3. Run on iOS Simulator
 Press `i` in the Expo terminal window, or run directly:
 ```bash
 npx expo run:ios
 ```
 
-### 4. Run on Physical iPhone via Expo Go
+#### 4. Run on Physical iPhone via Expo Go
 1. Install **Expo Go** from the Apple App Store.
 2. Scan the terminal QR code using your iPhone Camera app.
 
@@ -155,3 +168,9 @@ npx expo run:ios
    - Select **Any iOS Device (arm64)** as target.
    - Go to **Product → Archive**.
    - Once archived in the Organizer, click **Distribute App → App Store Connect → Upload**.
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
