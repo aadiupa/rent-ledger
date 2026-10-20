@@ -50,6 +50,7 @@ export interface RentCharge {
   waived_amount: number; // in paise
   waived_reason?: string | null;
   status: 'due' | 'overdue' | 'partially_paid' | 'paid' | 'waived';
+  notes?: string | null;
   created_at: string;
 }
 

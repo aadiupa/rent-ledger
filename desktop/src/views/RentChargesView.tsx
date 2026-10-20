@@ -335,8 +335,15 @@ export const RentChargesView: React.FC<RentChargesViewProps> = ({
                     </td>
 
                     {/* Amount Due */}
-                    <td className="py-3.5 px-4 font-mono font-bold text-gray-900">
-                      {formatINR(charge.amount_due)}
+                    <td className="py-3.5 px-4">
+                      <div className="font-mono font-bold text-gray-900">
+                        {formatINR(charge.amount_due)}
+                      </div>
+                      {charge.notes && (
+                        <div className="text-[10px] text-indigo-600 font-medium whitespace-nowrap mt-0.5">
+                          {charge.notes}
+                        </div>
+                      )}
                     </td>
 
                     {/* Paid & Waived */}

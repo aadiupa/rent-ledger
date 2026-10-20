@@ -205,7 +205,45 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     expect(genRes2.count).toBe(0);
   });
 
-  test('E2E Scenario 4: Smart Payment Allocation & Arrears Elimination', async () => {
+  test('E2E Scenario 4: Mid-Month Lease Start (25th) Prorated Rent Calculation', async () => {
+    // Onboard a tenant whose lease starts on the 25th of August
+    const midMonthTenantRes = await request('/tenants', {
+      method: 'POST',
+      body: JSON.stringify({
+        property_id: createdPropertyId,
+        name: 'Late Month Tenant (25th)',
+        monthly_rent: 3100000, // ₹31,000 / month
+        rent_due_day: 1,
+        lease_start: '2026-08-25',
+        security_deposit: 6200000,
+      }),
+    });
+    expect(midMonthTenantRes.id).toBeDefined();
+    const midTenantId = midMonthTenantRes.id;
+
+    // Fetch generated charges for this tenant
+    const charges = await request('/charges');
+    const tenantCharges = charges.filter((c: any) => c.tenant_id === midTenantId);
+
+    // In August (31 days), 25th to 31st = 7 days.
+    // Prorated amount: Math.round(31,000 * 7 / 31) = ₹7,000 (700000 paise)
+    const augCharge = tenantCharges.find((c: any) => c.period_year === 2026 && c.period_month === 8);
+    expect(augCharge).toBeDefined();
+    expect(augCharge.amount_due).toBe(700000); // exactly ₹7,000 for 7 days
+    expect(augCharge.due_date).toBe('2026-08-25');
+    expect(augCharge.notes).toContain('Prorated rent: 25 Aug – 31 Aug (7 days)');
+
+    // In September (30 days), full month rent = ₹31,000
+    const sepCharge = tenantCharges.find((c: any) => c.period_year === 2026 && c.period_month === 9);
+    expect(sepCharge).toBeDefined();
+    expect(sepCharge.amount_due).toBe(3100000);
+    expect(sepCharge.due_date).toBe('2026-09-01');
+
+    // Clean up test tenant so other scenarios remain unaffected
+    await request(`/tenants/${midTenantId}`, { method: 'DELETE' });
+  });
+
+  test('E2E Scenario 5: Smart Payment Allocation & Arrears Elimination', async () => {
     const tenantBefore = await request(`/tenants/${testTenantId}`);
     const initialArrears = tenantBefore.arrears;
     expect(initialArrears).toBeGreaterThan(0);
@@ -239,7 +277,7 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     expect(tenantCharges.some((c: any) => c.amount_paid > 0)).toBe(true);
   });
 
-  test('E2E Scenario 5: Financial Ledger Transaction Editing (Direct to Cash & Modes)', async () => {
+  test('E2E Scenario 6: Financial Ledger Transaction Editing (Direct to Cash & Modes)', async () => {
     // 1. Update rent payment transaction mode from Bank Transfer to Cash
     const patchRes1 = await request(`/transactions/${rentPaymentTxId}`, {
       method: 'PATCH',
@@ -293,7 +331,7 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     ).rejects.toThrow();
   });
 
-  test('E2E Scenario 6: Rent Liability Adjustment & Landlord Concessions/Waivers', async () => {
+  test('E2E Scenario 7: Rent Liability Adjustment & Landlord Concessions/Waivers', async () => {
     const charges = await request('/charges');
     const unpaidCharge = charges.find(
       (c: any) => c.tenant_id === testTenantId && c.status !== 'paid' && c.status !== 'waived'
@@ -354,7 +392,7 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     expect(chargeAfterDel.waived_reason).toBe('Diwali landlord festive waiver');
   });
 
-  test('E2E Scenario 7: Security Deposit Modification & Inter-Property Tenant Relocation', async () => {
+  test('E2E Scenario 8: Security Deposit Modification & Inter-Property Tenant Relocation', async () => {
     // 1. Change security deposit from ₹60,000 (6000000) to ₹85,000 (8500000)
     const patchDepositRes = await request(`/tenants/${testTenantId}`, {
       method: 'PATCH',
@@ -419,7 +457,7 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     expect(tenantFinal.property_id).toBe(createdPropertyId);
   });
 
-  test('E2E Scenario 8: Construction Capex & Operational Expenses Tracking', async () => {
+  test('E2E Scenario 9: Construction Capex & Operational Expenses Tracking', async () => {
     // 1. Record Construction Capex 1: Raw Materials
     const txCapex1 = await request('/transactions', {
       method: 'POST',
@@ -483,7 +521,7 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     expect(constrSpend.total_spent).toBe(21000000);
   });
 
-  test('E2E Scenario 9: Single & Multi-Select Removal with Automatic Balance Restoration', async () => {
+  test('E2E Scenario 10: Single & Multi-Select Removal with Automatic Balance Restoration', async () => {
     const dashBefore = await request('/dashboard');
     const cashBefore = dashBefore.available_cash;
 
@@ -516,7 +554,7 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     expect(tenantAfterTxDel.arrears).toBe(arrearsBeforeTxDel + 3500000);
   });
 
-  test('E2E Scenario 10: Single & Bulk Deletion of Rent Charges & Dues', async () => {
+  test('E2E Scenario 11: Single & Bulk Deletion of Rent Charges & Dues', async () => {
     // 1. Fetch current charges for tenant
     const charges = await request('/charges');
     const tenantCharges = charges.filter((c: any) => c.tenant_id === testTenantId);
@@ -552,7 +590,7 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     }
   });
 
-  test('E2E Scenario 11: Tenant Deletion with Safe Cascade & Cash Integrity', async () => {
+  test('E2E Scenario 12: Tenant Deletion with Safe Cascade & Cash Integrity', async () => {
     // Verify tenant exists before deletion
     const tenantBefore = await request(`/tenants/${testTenantId}`);
     expect(tenantBefore).toBeDefined();
@@ -579,7 +617,7 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     expect(Array.isArray(txs)).toBe(true);
   });
 
-  test('E2E Scenario 12: Safe Property Deletion & Cascade', async () => {
+  test('E2E Scenario 13: Safe Property Deletion & Cascade', async () => {
     // Delete the active property
     const delRes = await request(`/properties/${createdPropertyId}`, {
       method: 'DELETE',
@@ -595,7 +633,7 @@ describe('RentLedger Desktop — End-to-End (E2E) Test Suite', () => {
     expect(Array.isArray(txs)).toBe(true);
   });
 
-  test('E2E Scenario 13: Settings Persistence & Dynamic Cash Ledger', async () => {
+  test('E2E Scenario 14: Settings Persistence & Dynamic Cash Ledger', async () => {
     // Update opening cash balance and auto-generate setting
     const patchSettings = await request('/settings', {
       method: 'PATCH',

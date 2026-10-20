@@ -82,6 +82,7 @@ function initSchema() {
       waived_amount INTEGER NOT NULL DEFAULT 0,
       waived_reason TEXT,
       status TEXT NOT NULL DEFAULT 'due',
+      notes TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(tenant_id, period_year, period_month)
@@ -143,6 +144,16 @@ function initSchema() {
     const propCols = db.prepare("PRAGMA table_info(properties)").all().map(c => c.name);
     if (!propCols.includes('rental_start_date')) {
       db.prepare("ALTER TABLE properties ADD COLUMN rental_start_date TEXT").run();
+    }
+  } catch (e) {
+    // Column might already exist
+  }
+
+  // Migration: ensure notes column exists in rent_charges table
+  try {
+    const chargeCols = db.prepare("PRAGMA table_info(rent_charges)").all().map(c => c.name);
+    if (!chargeCols.includes('notes')) {
+      db.prepare("ALTER TABLE rent_charges ADD COLUMN notes TEXT").run();
     }
   } catch (e) {
     // Column might already exist
@@ -248,32 +259,54 @@ function seedSampleData() {
   generateMonthlyCharges();
 }
 
-// Generate monthly rent charges idempotently
+// Generate monthly rent charges idempotently (with prorated rent calculation for mid-month starts e.g. 25th)
 function generateMonthlyCharges(upToDate = new Date().toISOString().split('T')[0]) {
   const tenants = db.prepare("SELECT * FROM tenants WHERE is_active = 1").all();
   const insertCharge = db.prepare(`
     INSERT OR IGNORE INTO rent_charges (
-      tenant_id, property_id, period_year, period_month, due_date, amount_due, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      tenant_id, property_id, period_year, period_month, due_date, amount_due, status, notes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   let count = 0;
-  for (const t of tenants) {
-    const start = new Date(t.lease_start);
-    let y = start.getFullYear();
-    let m = start.getMonth() + 1;
 
-    const todayDate = new Date(upToDate);
-    const todayY = todayDate.getFullYear();
-    const todayM = todayDate.getMonth() + 1;
+  for (const t of tenants) {
+    if (!t.lease_start) continue;
+    const [startY, startM, startD] = t.lease_start.split('-').map(Number);
+    let y = startY;
+    let m = startM;
+
+    const [todayY, todayM] = upToDate.split('-').slice(0, 2).map(Number);
 
     while (y < todayY || (y === todayY && m <= todayM)) {
       const daysInMonth = new Date(y, m, 0).getDate();
-      const dueDay = Math.min(t.rent_due_day, daysInMonth);
-      const dueDate = `${y}-${String(m).padStart(2, '0')}-${String(dueDay).padStart(2, '0')}`;
+      let amountDue = t.monthly_rent;
+      let dueDate = '';
+      let notes = null;
+
+      // If starting month and lease starts mid-month (e.g. 25th)
+      if (y === startY && m === startM && startD > 1) {
+        const activeDays = daysInMonth - startD + 1;
+        amountDue = Math.round((t.monthly_rent * activeDays) / daysInMonth);
+        dueDate = t.lease_start; // Due on move-in date
+        notes = `Prorated rent: ${startD} ${monthNames[m - 1]} – ${daysInMonth} ${monthNames[m - 1]} (${activeDays} days)`;
+      } else {
+        const dueDay = Math.min(t.rent_due_day || 1, daysInMonth);
+        dueDate = `${y}-${String(m).padStart(2, '0')}-${String(dueDay).padStart(2, '0')}`;
+      }
 
       if (dueDate <= upToDate) {
-        const res = insertCharge.run(t.id, t.property_id, y, m, dueDate, t.monthly_rent, dueDate < upToDate ? 'overdue' : 'due');
+        const res = insertCharge.run(
+          t.id,
+          t.property_id,
+          y,
+          m,
+          dueDate,
+          amountDue,
+          dueDate < upToDate ? 'overdue' : 'due',
+          notes
+        );
         if (res.changes > 0) count++;
       }
 
@@ -637,6 +670,33 @@ app.patch('/api/tenants/:id', (req, res) => {
         VALUES (?, ?, ?, 'income', 'Security Deposit', ?, ?)
       `).run(tenant.lease_start || today, currentPropId, tenantId, security_deposit, `Security deposit adjusted for ${tenant.name}`);
     }
+  }
+
+  // If lease_start or monthly_rent was updated, re-calculate start month charge if unpaid, and generate any new charges
+  if (lease_start !== undefined || monthly_rent !== undefined) {
+    const tenant = db.prepare("SELECT * FROM tenants WHERE id = ?").get(tenantId);
+    if (tenant && tenant.lease_start) {
+      const [sY, sM, sD] = tenant.lease_start.split('-').map(Number);
+      const daysInMonth = new Date(sY, sM, 0).getDate();
+      let newAmount = tenant.monthly_rent;
+      let newDueDate = `${sY}-${String(sM).padStart(2, '0')}-${String(Math.min(tenant.rent_due_day || 1, daysInMonth)).padStart(2, '0')}`;
+      let newNotes = null;
+
+      if (sD > 1) {
+        const activeDays = daysInMonth - sD + 1;
+        newAmount = Math.round((tenant.monthly_rent * activeDays) / daysInMonth);
+        newDueDate = tenant.lease_start;
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        newNotes = `Prorated rent: ${sD} ${monthNames[sM - 1]} – ${daysInMonth} ${monthNames[sM - 1]} (${activeDays} days)`;
+      }
+
+      db.prepare(`
+        UPDATE rent_charges
+        SET amount_due = ?, due_date = ?, notes = ?, updated_at = datetime('now')
+        WHERE tenant_id = ? AND period_year = ? AND period_month = ? AND amount_paid = 0
+      `).run(newAmount, newDueDate, newNotes, tenantId, sY, sM);
+    }
+    generateMonthlyCharges();
   }
 
   res.json({ success: true });

@@ -31,6 +31,19 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const proratedInfo = (() => {
+    if (!leaseStart || !monthlyRentRupees || Number(monthlyRentRupees) <= 0) return null;
+    const parts = leaseStart.split('-').map(Number);
+    if (parts.length !== 3) return null;
+    const [y, m, d] = parts;
+    if (d <= 1) return null;
+    const daysInMonth = new Date(y, m, 0).getDate();
+    const activeDays = daysInMonth - d + 1;
+    const monthlyPaise = rupeesToPaise(monthlyRentRupees);
+    const proratedPaise = Math.round((monthlyPaise * activeDays) / daysInMonth);
+    return { d, daysInMonth, activeDays, proratedPaise };
+  })();
+
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -216,6 +229,17 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({
               />
             </div>
           </div>
+
+          {proratedInfo && (
+            <div className="p-2.5 rounded-lg bg-indigo-50/80 border border-indigo-200/70 text-[11px] text-indigo-900 flex items-center justify-between">
+              <span>
+                ⚡ <strong>Prorated First Month Rent:</strong> Lease starts on {proratedInfo.d}th ({proratedInfo.activeDays} days calculated for those dates).
+              </span>
+              <span className="font-mono font-bold text-indigo-700 ml-2 whitespace-nowrap">
+                {formatINR(proratedInfo.proratedPaise)}
+              </span>
+            </div>
+          )}
 
           {/* Opening Arrears Balance */}
           <div>
