@@ -85,6 +85,10 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
+  deleteTenant: (id: number) =>
+    request<{ success: boolean }>(`/tenants/${id}`, {
+      method: 'DELETE',
+    }),
 
   // Charges / Liabilities
   getCharges: () => request<RentCharge[]>('/charges'),
@@ -98,6 +102,15 @@ export const api = {
     request<{ success: boolean }>(`/charges/${id}/waive`, {
       method: 'PATCH',
       body: JSON.stringify(data),
+    }),
+  deleteCharge: (id: number) =>
+    request<{ success: boolean; count: number }>(`/charges/${id}`, {
+      method: 'DELETE',
+    }),
+  bulkDeleteCharges: (ids: number[]) =>
+    request<{ success: boolean; count: number }>('/charges/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
     }),
 
   // Transactions & Expenses

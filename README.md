@@ -21,16 +21,18 @@ Repository: [https://github.com/aadiupa/rent-ledger](https://github.com/aadiupa/
   - Configure monthly recurring rent, custom due day (1st–31st), and opening arrears at the tenant level.
   - Edit individual month's rent due amount or payment due date.
   - Grant authorized landlord waivers / concessions with audit reasons.
+  - Single & multi-select bulk deletion of rent charges with automatic arrears recalculation.
+- **Tenant & Property Lifecycle Management**:
+  - Onboard tenants with custom recurring rent, due days, security deposits, and opening arrears.
+  - Remove tenants with safety confirmation dialog and automatic cascade handling.
+  - Track active rental properties alongside properties under construction, with safe property removal.
 - **Expenses & Property Construction Capex**:
   - Separate capital expenditure (Capex) from operational maintenance (Opex).
   - Track site building and construction costs when developing new properties (e.g. building a 5th property): civil labor, contractors, raw materials (cement, steel), architectural blueprints, and municipal sanctions.
   - Track routine repairs, property taxes, utilities, and society dues.
 - **Single & Bulk Removal with Reconciliation**:
-  - Remove transactions from the ledger or expense records individually or via multi-select checkboxes.
+  - Remove transactions from the ledger, expenses, or rent dues individually or via multi-select checkboxes.
   - Automatic payment allocation reversal, arrears recalculation, and cashflow rebalancing.
-- **Property & Portfolio Lifecycle Management**:
-  - Track active rental properties and units alongside properties under construction.
-  - Safe property deletion with confirmation modal.
 - **Arrears Management**:
   $$\text{Arrears} = \text{Opening Arrears} + \text{Charges Due} - \text{Allocations} - \text{Waivers}$$
   Future rent charges never appear as arrears. Security deposits never offset rent unless explicitly adjusted.
@@ -117,13 +119,26 @@ Open your browser at **[http://localhost:5173](http://localhost:5173)**.
 
 ---
 
-## 🧪 Running Unit Tests
+## 🧪 Running End-to-End (E2E) Tests
 
-Run the complete 17-scenario financial calculation test suite:
+Run the complete 11-scenario full-stack E2E test suite running against an isolated SQLite test database and the local server:
 
 ```bash
 npm test
 ```
+
+### Covered E2E Scenarios:
+1. **Initial Dashboard & Cashbook Integrity** (rent roll, available cash, refundable deposits)
+2. **Property Management & Construction Capex Projects** (active vs under construction)
+3. **Tenant Onboarding & Idempotent Charge Generation** (anti-duplication constraints)
+4. **Smart Payment Allocation & Arrears Elimination** (automatic allocation to oldest dues)
+5. **Rent Liability Adjustment & Landlord Waivers** (custom dues and festive concessions)
+6. **Construction Capex & Operational Expenses Tracking** (cement/steel, labor, repairs)
+7. **Single & Multi-Select Removal with Automatic Balance Restoration** (cash and arrears recovery)
+8. **Single & Bulk Deletion of Rent Charges & Dues** (removing liabilities and balance recomputation)
+9. **Tenant Deletion with Safe Cascade & Cash Integrity** (removing leases while preserving cash history)
+10. **Safe Property Deletion & Cascade** (clean unit removal without foreign key crashes)
+11. **Settings Persistence & Dynamic Cash Ledger** (instant SQLite state updates)
 
 ---
 

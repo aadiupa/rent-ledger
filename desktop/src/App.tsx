@@ -125,6 +125,7 @@ export const App: React.FC = () => {
             onOpenRecordModal={handleOpenRecordModal}
             onOpenEditCharge={(c) => setEditingCharge(c)}
             onOpenWaiveCharge={(c) => setWaivingCharge(c)}
+            onRefresh={refreshData}
           />
         )}
 

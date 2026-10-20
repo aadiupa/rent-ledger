@@ -20,7 +20,7 @@ app.use(cors());
 app.use(express.json());
 
 // SQLite database connection
-const dbPath = path.join(__dirname, 'rentledger.db');
+const dbPath = process.env.DB_PATH || path.join(__dirname, 'rentledger.db');
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
@@ -497,6 +497,47 @@ app.patch('/api/tenants/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// Delete Tenant with safe cascade (preserves historical ledger transactions)
+app.delete('/api/tenants/:id', (req, res) => {
+  const tenantId = Number(req.params.id);
+  if (!tenantId || isNaN(tenantId)) {
+    return res.status(400).json({ error: "Invalid tenant ID" });
+  }
+
+  try {
+    const deleteTx = db.transaction(() => {
+      // 1. Delete payment allocations for tenant's charges
+      db.prepare(`
+        DELETE FROM rent_payment_allocations 
+        WHERE rent_charge_id IN (SELECT id FROM rent_charges WHERE tenant_id = ?)
+      `).run(tenantId);
+
+      // 2. Delete rent charges
+      db.prepare("DELETE FROM rent_charges WHERE tenant_id = ?").run(tenantId);
+
+      // 3. Delete security deposit records
+      db.prepare("DELETE FROM security_deposits WHERE tenant_id = ?").run(tenantId);
+
+      // 4. Preserve transactions as general overhead
+      db.prepare("UPDATE transactions SET tenant_id = NULL WHERE tenant_id = ?").run(tenantId);
+
+      // 5. Delete tenant
+      const result = db.prepare("DELETE FROM tenants WHERE id = ?").run(tenantId);
+      return result.changes;
+    });
+
+    const deleted = deleteTx();
+    if (deleted === 0) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting tenant:', err);
+    res.status(500).json({ error: err.message || "Failed to delete tenant" });
+  }
+});
+
 // 4. Rent Charges & Dues
 app.get('/api/charges', (req, res) => {
   updateChargeStatuses();
@@ -550,6 +591,83 @@ app.patch('/api/charges/:id/waive', (req, res) => {
 
   updateChargeStatuses();
   res.json({ success: true });
+});
+
+// Charge delete helper for single and bulk deletion
+function deleteChargesInternal(rawIds) {
+  const ids = (Array.isArray(rawIds) ? rawIds : [rawIds])
+    .map(Number)
+    .filter(n => Number.isInteger(n) && n > 0);
+
+  if (ids.length === 0) return { deletedCount: 0 };
+
+  const deleteTx = db.transaction(() => {
+    const placeholders = ids.map(() => '?').join(',');
+
+    // 1. Delete payment allocations tied to these charges
+    db.prepare(`
+      DELETE FROM rent_payment_allocations 
+      WHERE rent_charge_id IN (${placeholders})
+    `).run(...ids);
+
+    // 2. Delete the rent charges
+    const result = db.prepare(`
+      DELETE FROM rent_charges 
+      WHERE id IN (${placeholders})
+    `).run(...ids);
+
+    // 3. Recalculate remaining charge statuses
+    updateChargeStatuses();
+
+    return result.changes;
+  });
+
+  const deletedCount = deleteTx();
+  return { deletedCount };
+}
+
+// Single charge delete
+app.delete('/api/charges/:id', (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id || isNaN(id)) {
+      return res.status(400).json({ error: "Invalid charge ID" });
+    }
+    const { deletedCount } = deleteChargesInternal([id]);
+    res.json({ success: true, count: deletedCount });
+  } catch (err) {
+    console.error('Error deleting charge:', err);
+    res.status(500).json({ error: err.message || "Failed to delete charge" });
+  }
+});
+
+// Bulk charge delete
+app.post('/api/charges/bulk-delete', (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "ids array required" });
+    }
+    const { deletedCount } = deleteChargesInternal(ids);
+    res.json({ success: true, count: deletedCount });
+  } catch (err) {
+    console.error('Error bulk deleting charges:', err);
+    res.status(500).json({ error: err.message || "Failed to bulk delete charges" });
+  }
+});
+
+app.delete('/api/charges', (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "ids array required" });
+    }
+    const { deletedCount } = deleteChargesInternal(ids);
+    res.json({ success: true, count: deletedCount });
+  } catch (err) {
+    console.error('Error bulk deleting charges:', err);
+    res.status(500).json({ error: err.message || "Failed to bulk delete charges" });
+  }
 });
 
 // 5. Transactions Ledger
@@ -772,7 +890,13 @@ app.get('/api/expenses', (req, res) => {
   const opex = Math.max(0, total - capex);
 
   const byProperty = db.prepare(`
-    SELECT COALESCE(p.name, 'General / Overhead') as name, p.id as property_id, p.status as property_status, COALESCE(SUM(t.amount), 0) as total
+    SELECT COALESCE(p.name, 'General / Overhead') as name,
+           COALESCE(p.name, 'General / Overhead') as property_name,
+           p.id as property_id,
+           p.status as property_status,
+           p.status as status,
+           COALESCE(SUM(t.amount), 0) as total,
+           COALESCE(SUM(t.amount), 0) as total_spent
     FROM transactions t
     LEFT JOIN properties p ON t.property_id = p.id
     WHERE t.transaction_type = 'expense'
